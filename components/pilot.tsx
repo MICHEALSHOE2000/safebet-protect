@@ -1,16 +1,404 @@
-'use client';
-import {useEffect,useState} from 'react';
-export function PilotStation({api,busy,checks}:any){
- const [result,setResult]=useState<any>(null),[online,setOnline]=useState(true);
- useEffect(()=>{const update=()=>{setOnline(navigator.onLine);setResult(null)};update();window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update)}},[]);
- useEffect(()=>{if(!result?.expires)return;const timer=setTimeout(()=>setResult(null),Math.max(0,result.expires-Date.now()));return()=>clearTimeout(timer)},[result]);
- return <><div className="page-title"><span className="eyebrow">FICTIONAL SHOP STATION</span><h1>Check player eligibility.</h1><p>{online?'Connection available. Every check reads the shared database.':'Offline — do not serve until eligibility can be confirmed.'}</p></div><form className="card formcard" onSubmit={async e=>{e.preventDefault();setResult(null);if(!online)return;const f=new FormData(e.currentTarget);const r=await api('verify',{identifier:f.get('identifier'),identityConfirmed:f.get('identity')==='on',consent:f.get('consent')==='on'});setResult(r||{result:'SYSTEM UNAVAILABLE — DO NOT SERVE'});}}><label className="field"><span>Fictional player ID</span><input name="identifier" placeholder="DEMO-A" autoComplete="off" required pattern="[Dd][Ee][Mm][Oo]-[A-Za-z0-9-]+"/></label><p>Demo A: adult · Demo B: underage. IDs are demonstration credentials, not proof of identity.</p><label className="checkbox"><input name="identity" type="checkbox" required/>I confirmed the fictional identity with the person presenting it.</label><label className="checkbox"><input name="consent" type="checkbox" required/>The fictional player is present and consents to this check.</label><button className="btn primary" disabled={busy||!online}>CHECK PLAYER ELIGIBILITY</button></form>{result&&<section className={`card formcard verification ${result.result?.startsWith('ELIGIBLE')?'clear':'blocked'}`} role="status"><h2>{result.result}</h2><p>Simulated identity verification. Applies to this participating pilot only. Results expire after one minute.</p>{/^(EXCLUDED|UNDERAGE)/.test(result.result)&&<button className="btn dark" disabled={busy||result.refused} onClick={async()=>{if(await api('refuse',{id:result.id}))setResult({...result,refused:true})}}>{result.refused?'Refusal recorded':'Record service refused'}</button>}</section>}{checks()}</>;
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+export function PilotStation({ api, busy, checks }: any) {
+  const [result, setResult] = useState<any>(null),
+    [online, setOnline] = useState(true);
+  useEffect(() => {
+    const update = () => {
+      setOnline(navigator.onLine);
+      setResult(null);
+    };
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  useEffect(() => {
+    if (!result?.expires) return;
+    const timer = setTimeout(
+      () => setResult({ result: "CHECK EXPIRED — VERIFY AGAIN" }),
+      Math.max(0, result.expires - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [result]);
+  return (
+    <>
+      <div className="page-title">
+        <span className="eyebrow">FICTIONAL SHOP STATION</span>
+        <h1>Check Customer Protection.</h1>
+        <p>
+          {online
+            ? "Connection available. Every check reads the shared database."
+            : "Offline — do not serve until verification is complete."}
+        </p>
+      </div>
+      <form
+        className="card formcard"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setResult(null);
+          if (!online) return;
+          const f = new FormData(e.currentTarget);
+          const r = await api("verify", {
+            identifier: f.get("identifier"),
+            identityConfirmed: f.get("identity") === "on",
+            consent: f.get("consent") === "on",
+          });
+          setResult(r || { result: "SYSTEM UNAVAILABLE — DO NOT SERVE" });
+        }}
+      >
+        <label className="field">
+          <span>Fictional player ID</span>
+          <input
+            name="identifier"
+            placeholder="DEMO-A"
+            autoComplete="off"
+            required
+            pattern="[Dd][Ee][Mm][Oo]-[A-Za-z0-9-]+"
+          />
+        </label>
+        <p>
+          Demo A: adult · Demo B: underage. IDs are demonstration credentials,
+          not proof of identity.
+        </p>
+        <label className="checkbox">
+          <input name="identity" type="checkbox" required />I confirmed the
+          fictional identity with the person presenting it.
+        </label>
+        <label className="checkbox">
+          <input name="consent" type="checkbox" required />
+          The fictional player is present and consents to this check.
+        </label>
+        <button className="btn primary" disabled={busy || !online}>
+          Check Status
+        </button>
+      </form>
+      {result && (
+        <section
+          className={`card formcard verification ${result.result === "NO ACTIVE EXCLUSION FOUND" ? "clear" : /^(EXCLUDED|UNDERAGE)/.test(result.result) ? "blocked" : "uncertain"}`}
+          role="status"
+        >
+          <h2>
+            {result.result === "EXCLUDED — DO NOT SERVE"
+              ? "SELF-EXCLUSION ACTIVE"
+              : result.result}
+          </h2>
+          <p>
+            <b>
+              {result.result === "EXCLUDED — DO NOT SERVE"
+                ? "DO NOT ACCEPT A BET."
+                : result.result === "NO ACTIVE EXCLUSION FOUND"
+                  ? "This is not proof of general legal eligibility or permission to gamble. Complete separate age and identity checks."
+                  : "DO NOT PROCEED UNTIL VERIFICATION IS COMPLETE."}
+            </b>
+          </p>
+          <p>
+            Simulated identity verification. Applies to this participating pilot
+            only. Results expire after one minute.
+          </p>
+          {/^(EXCLUDED|UNDERAGE)/.test(result.result) && (
+            <button
+              className="btn dark"
+              disabled={busy || result.refused}
+              onClick={async () => {
+                if (await api("refuse", { id: result.id }))
+                  setResult({ ...result, refused: true });
+              }}
+            >
+              {result.refused ? "Refusal recorded" : "Record service refused"}
+            </button>
+          )}
+        </section>
+      )}
+      {checks()}
+    </>
+  );
 }
-export function PilotEnrol({api,busy,go,role}:any){const [created,setCreated]=useState<any>(null);return <div className="narrow"><div className="page-title"><h1>Your fictional player profile.</h1><p>No NIN, phone number or real identity document is needed.</p></div><form className="card formcard" onSubmit={async e=>{e.preventDefault();const r=await api('demoEnrol',{consent:true});if(r){if(role==='shop')setCreated(r);else go('/player/exclusion-status')}}}>{created&&<p role="status">Fictional player created: <b>{created.credential}</b>. Keep this ID for the shop check.</p>}<h2>Simulated adult identity</h2><p>We will create a fictional adult, born 1 January 1990, and a unique DEMO ID in the configured pilot. This does not verify your actual identity or age.</p><label className="checkbox"><input type="checkbox" required/>I understand this is fictional and consent to creating the demo profile.</label><button className="btn primary" disabled={busy}>Create fictional player</button></form></div>}
-export function PublicComplaint(){
- const [shops,setShops]=useState<any[]>([]),[error,setError]=useState(''),[saved,setSaved]=useState<any>(null),[status,setStatus]=useState<any>(null),[busy,setBusy]=useState(false);
- useEffect(()=>{fetch('/api/complaints').then(r=>r.json()).then(d=>{setShops(d.shops||[]);if(d.error)setError(d.error)}).catch(()=>setError('Reporting service unavailable.'))},[]);
- async function send(data:any){setBusy(true);setError('');try{const r=await fetch('/api/complaints',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json();if(!r.ok)throw Error(d.error);return d}catch(e:any){setError(e.message);return null}finally{setBusy(false)}}
- return <div className="narrow wide"><div className="page-title"><span className="eyebrow">NO ACCOUNT REQUIRED</span><h1>Report a protection concern.</h1><p>A complaint is an allegation, not a finding. No government agency is automatically notified.</p></div>{error&&<p role="alert" className="error">{error}</p>}{saved?<section className="card formcard" role="status"><h2>Your report was saved.</h2><p>Keep both values privately. The key is shown only now; losing it means you cannot track this anonymous report.</p><label className="field">Tracking reference<input readOnly value={saved.reference}/></label><label className="field">Private tracking key<textarea readOnly value={saved.secret}/></label></section>:<form className="card formcard" onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget);const d=await send({...Object.fromEntries(f),fictional:f.get('fictional')==='on'});if(d)setSaved(d)}}><label className="field"><span>Participating shop</span><select name="shopId" required><option value="">Choose a shop</option>{shops.map(s=><option value={s.id} key={s.id}>{s.name} · {s.state}</option>)}</select></label><label className="field"><span>Incident date</span><input type="date" name="incidentDate" required/></label><label className="field"><span>What happened? Do not include identity numbers.</span><textarea name="description" rows={5} minLength={10} maxLength={3000} required/></label><label className="checkbox"><input name="fictional" type="checkbox" required/>I am submitting fictional information for this independent pilot demonstration.</label><button className="btn primary" disabled={busy||!shops.length}>Submit anonymous report</button></form>}<form className="card formcard" onSubmit={async e=>{e.preventDefault();setStatus(null);const d=await send({action:'track',...Object.fromEntries(new FormData(e.currentTarget))});if(d)setStatus(d)}}><h2>Track an anonymous report</h2><label className="field">Reference<input name="reference" required autoComplete="off"/></label><label className="field">Private tracking key<input name="secret" type="password" required autoComplete="off"/></label><button className="btn" disabled={busy}>Check status</button>{status&&<p role="status"><b>{status.status}</b> · Last updated {new Date(status.updated).toLocaleString()}</p>}<p className="muted">Tracking returns status only. It never reveals complaint details, evidence or officer notes.</p></form></div>;
+export function PilotEnrol({ api, busy, go, role }: any) {
+  const [created, setCreated] = useState<any>(null);
+  return (
+    <div className="narrow">
+      <div className="page-title">
+        <h1>Your fictional player profile.</h1>
+        <p>No NIN, phone number or real identity document is needed.</p>
+      </div>
+      <form
+        className="card formcard"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await api("demoEnrol", { consent: true });
+          if (r) {
+            if (role === "shop") setCreated(r);
+            else go("/player/exclusion-status");
+          }
+        }}
+      >
+        {created && (
+          <p role="status">
+            Fictional player created: <b>{created.credential}</b>. Keep this ID
+            for the shop check.
+          </p>
+        )}
+        <h2>Simulated adult identity</h2>
+        <p>
+          We will create a fictional adult, born 1 January 1990, and a unique
+          DEMO ID in the configured pilot. This does not verify your actual
+          identity or age.
+        </p>
+        <label className="checkbox">
+          <input type="checkbox" required />I understand this is fictional and
+          consent to creating the demo profile.
+        </label>
+        <button className="btn primary" disabled={busy}>
+          Create fictional player
+        </button>
+      </form>
+    </div>
+  );
 }
-export function DemoGuide(){return <div className="narrow wide"><div className="page-title"><span className="eyebrow">INDEPENDENT FICTIONAL PILOT</span><h1>One choice. Two shops. A shared record.</h1><p>Use privately provisioned accounts and separate browser profiles for each role. No privileged credentials are published here.</p></div><section className="card formcard"><h2>A · Follow an exclusion</h2><ol className="numberlist"><li>Sign in as Player A and activate 180 days of self-exclusion.</li><li>Sign out, then sign in as Attendant A. Check DEMO-A and record refusal.</li><li>Repeat as Attendant B at the other shop. The same exclusion must appear.</li><li>Sign in as an officer and review both checks.</li></ol><h2>B · Refuse underage service</h2><p>As either attendant, check DEMO-B, the fictional underage player. Record the refusal and find it in regulator activity.</p><h2>C · Follow a complaint</h2><p>Submit an anonymous fictional report, keep its reference and private key, then sign in as an officer to assign and update it. Sign out and retrieve only its status using the two private values.</p><a className="btn primary" href="/signin">Sign in to an assigned account</a><a className="btn" href="/report-shop">Open anonymous reporting</a><p>These records persist in PostgreSQL. Refreshing or changing devices does not reset them. All identities and shops are fictional; this system is not government-authorised.</p></section></div>}
+export function PublicComplaint() {
+  const [jurisdictions, setJurisdictions] = useState<any[]>([]),
+    [jurisdictionId, setJurisdictionId] = useState(""),
+    [demoMode, setDemoMode] = useState(false);
+  const [shops, setShops] = useState<any[]>([]),
+    [error, setError] = useState(""),
+    [saved, setSaved] = useState<any>(null),
+    [status, setStatus] = useState<any>(null),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch("/api/complaints")
+      .then((r) => r.json())
+      .then((d) => {
+        setShops(d.shops || []);
+        setJurisdictions(d.jurisdictions || []);
+        setDemoMode(!!d.demoMode);
+        if (d.error) setError(d.error);
+      })
+      .catch(() => setError("Reporting service unavailable."));
+  }, []);
+  async function send(data: any) {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const d = await r.json();
+      if (!r.ok) throw Error(d.error);
+      return d;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="narrow wide">
+      <div className="page-title">
+        <span className="eyebrow">NO ACCOUNT REQUIRED</span>
+        <h1>Report a protection concern.</h1>
+        <p>
+          A complaint is an allegation, not a finding. No government agency is
+          automatically notified.
+        </p>
+      </div>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {saved ? (
+        <section className="card formcard" role="status">
+          <h2>Your report was saved.</h2>
+          <p>
+            Keep both values privately. The key is shown only now; losing it
+            means you cannot track this anonymous report.
+          </p>
+          <label className="field">
+            Tracking reference
+            <input readOnly value={saved.reference} />
+          </label>
+          <label className="field">
+            Private tracking key
+            <textarea readOnly value={saved.secret} />
+          </label>
+          {saved.accountLinked && (
+            <Link className="btn" href="/player/reports">
+              Open My Reports to add private evidence
+            </Link>
+          )}
+        </section>
+      ) : (
+        <form
+          className="card formcard"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            const d = await send({
+              ...Object.fromEntries(f),
+              fictional: f.get("fictional") === "on",
+              anonymous: f.get("accountLinked") !== "on",
+            });
+            if (d) setSaved(d);
+          }}
+        >
+          <label className="field">
+            <span>State and LGA / pilot jurisdiction</span>
+            <select
+              name="jurisdictionId"
+              required
+              value={jurisdictionId}
+              onChange={(e) => setJurisdictionId(e.target.value)}
+            >
+              <option value="">Choose the incident jurisdiction</option>
+              {jurisdictions.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.state} · {j.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Participating outlet, when known</span>
+            <select name="shopId">
+              <option value="">Outlet unknown / not listed</option>
+              {shops
+                .filter((s) => s.jurisdictionId === jurisdictionId)
+                .map((s) => (
+                  <option value={s.id} key={s.id}>
+                    {s.name} · {s.state}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Incident date and time (WAT)</span>
+            <input type="datetime-local" name="incidentDate" required />
+          </label>
+          <label className="field">
+            <span>What happened? Do not include identity numbers.</span>
+            <textarea
+              name="description"
+              rows={5}
+              minLength={10}
+              maxLength={3000}
+              required
+            />
+          </label>
+          {demoMode && (
+            <label className="checkbox">
+              <input name="fictional" type="checkbox" required />I am submitting
+              fictional information for this independent pilot demonstration.
+            </label>
+          )}
+          <label className="checkbox">
+            <input name="accountLinked" type="checkbox" />
+            Link to my signed-in player account so I can add private evidence
+            later.
+          </label>
+          <p>
+            Leave unchecked to report anonymously. Anonymous reports use a
+            private tracking key; evidence upload currently requires a linked
+            player account.
+          </p>
+          <button className="btn primary" disabled={busy || !jurisdictionId}>
+            Submit anonymous report
+          </button>
+        </form>
+      )}
+      <form
+        className="card formcard"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setStatus(null);
+          const d = await send({
+            action: "track",
+            ...Object.fromEntries(new FormData(e.currentTarget)),
+          });
+          if (d) setStatus(d);
+        }}
+      >
+        <h2>Track an anonymous report</h2>
+        <label className="field">
+          Reference
+          <input name="reference" required autoComplete="off" />
+        </label>
+        <label className="field">
+          Private tracking key
+          <input name="secret" type="password" required autoComplete="off" />
+        </label>
+        <button className="btn" disabled={busy}>
+          Check status
+        </button>
+        {status && (
+          <p role="status">
+            <b>{status.status}</b> · Last updated{" "}
+            {new Date(status.updated).toLocaleString()}
+          </p>
+        )}
+        <p className="muted">
+          Tracking returns status only. It never reveals complaint details,
+          evidence or officer notes.
+        </p>
+      </form>
+    </div>
+  );
+}
+export function DemoGuide() {
+  return (
+    <div className="narrow wide">
+      <div className="page-title">
+        <span className="eyebrow">INDEPENDENT FICTIONAL PILOT</span>
+        <h1>One choice. Two shops. A shared record.</h1>
+        <p>
+          Use privately provisioned accounts and separate browser profiles for
+          each role. No privileged credentials are published here.
+        </p>
+      </div>
+      <section className="card formcard">
+        <h2>A · Follow an exclusion</h2>
+        <ol className="numberlist">
+          <li>Sign in as Player A and activate 180 days of self-exclusion.</li>
+          <li>
+            Sign out, then sign in as Attendant A. Check DEMO-A and record
+            refusal.
+          </li>
+          <li>
+            Repeat as Attendant B at the other shop. The same exclusion must
+            appear.
+          </li>
+          <li>Sign in as an officer and review both checks.</li>
+        </ol>
+        <h2>B · Refuse underage service</h2>
+        <p>
+          As either attendant, check DEMO-B, the fictional underage player.
+          Record the refusal and find it in regulator activity.
+        </p>
+        <h2>C · Follow a complaint</h2>
+        <p>
+          Submit an anonymous fictional report, keep its reference and private
+          key, then sign in as an officer to assign and update it. Sign out and
+          retrieve only its status using the two private values.
+        </p>
+        <Link className="btn primary" href="/signin">
+          Sign in to an assigned account
+        </Link>
+        <Link className="btn" href="/report-shop">
+          Open anonymous reporting
+        </Link>
+        <p>
+          These records persist in PostgreSQL. Refreshing or changing devices
+          does not reset them. All identities and shops are fictional; this
+          system is not government-authorised.
+        </p>
+      </section>
+    </div>
+  );
+}

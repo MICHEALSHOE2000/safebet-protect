@@ -1,21 +1,997 @@
-'use client';
-import React,{useState} from 'react';
-import {ShieldCheck,Phone,IdCard,ArrowRight,Check,Search,AlertTriangle,UserCheck,Store,Plus,LockKeyhole} from 'lucide-react';
-import {states,durationLabels} from '../lib/constants';
-const date=(v:number)=>v===253402300799000?'Indefinite':new Date(v).toLocaleString('en-NG',{timeZone:'Africa/Lagos',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-const Field=({label,children}:any)=><label className="field"><span>{label}</span>{children}</label>;
-export function AccessPage({user}:any){return <div className="narrow"><div className="page-title"><h1>{user?'Your assigned workspace.':'Welcome to SafeBet Protect.'}</h1><p>{user?'This page requires an assigned role. Contact your administrator if you need staff access.':'Sign in to access your account. Customers without a phone can enrol with help from an authorised attendant.'}</p></div><div className="card formcard">{user?<a className="btn primary" href={`/${user.role}/dashboard`}>Open my workspace <ArrowRight size={17}/></a>:<a className="btn primary" href="/signin" target="_top">Sign in securely <ArrowRight size={17}/></a>}</div></div>}
-export default function ProductionPage({path,data,api,go,notify,busy,now,checks}:any){
- const [kind,setKind]=useState('phone'),[identifier,setIdentifier]=useState(''),[consent,setConsent]=useState(false),[challenge,setChallenge]=useState(''),[result,setResult]=useState<any>(null);const u=data.user;
- function idFields(){return <><div className="method-tabs"><button type="button" className={kind==='phone'?'selected':''} onClick={()=>{setKind('phone');setIdentifier('');setChallenge('');setResult(null)}}><Phone size={20}/>Phone number</button><button type="button" className={kind==='nin'?'selected':''} onClick={()=>{setKind('nin');setIdentifier('');setChallenge('');setResult(null)}}><IdCard size={20}/>NIN · no phone needed</button></div><Field label={kind==='phone'?'Customer phone number':'National Identification Number (NIN)'}><input type={kind==='phone'?'tel':'password'} value={identifier} onChange={e=>{setIdentifier(e.target.value);setChallenge('');setResult(null)}} maxLength={kind==='nin'?11:18} inputMode="numeric" autoComplete="off" placeholder={kind==='nin'?'11-digit NIN':'080… or +23480…'} required/></Field><p className="muted">{kind==='nin'?'A personal phone is not required. Full NINs are not saved or displayed in results.':'Use the registered number. A number identifies a record; it does not prove who is presenting it.'}</p></>}
- function outlets(){return <div className="card formcard"><h2>Participating outlets</h2>{data.shops?.length?data.shops.map((s:any)=><div className="outlet" key={s.id}><Store size={22}/><div><b>{s.name}</b><p>{s.location}, {s.state} · {s.licence}</p></div></div>):<p>No outlets have been registered yet.</p>}</div>}
- function addOutlet(){return <form className="card formcard" onSubmit={async e=>{e.preventDefault();if(await api('addShop',Object.fromEntries(new FormData(e.currentTarget))))notify('Outlet registered. An administrator can now assign its staff.')}}><h2>Register an outlet</h2><div className="formgrid"><Field label="Shop name"><input name="name" required maxLength={100}/></Field><Field label="Location"><input name="location" required maxLength={200}/></Field><Field label="State"><select name="state" defaultValue="Lagos">{states.map(s=><option key={s}>{s}</option>)}</select></Field><Field label="Licence reference"><input name="licence" required maxLength={80}/></Field></div><button className="btn primary" disabled={busy}>Register outlet <Plus size={17}/></button></form>}
- if(path==='/register'||path==='/shop/enrol')return <div className="narrow wide"><div className="page-title"><span className="eyebrow">{u.role==='shop'?'ASSISTED CUSTOMER ENROLMENT':'YOUR PROTECTION STARTS HERE'}</span><h1>{u.role==='shop'?'No phone? They can still enrol.':'Enrol with phone number or NIN.'}</h1><p>Choose a verification method. Enrolment requires identity confirmation and voluntary consent.</p></div>{!data.identityReady&&<div className="notice"><AlertTriangle size={20}/><span><b>Identity verification is not connected yet.</b><br/>Enrolment is closed until the verification service is configured. Do not enter personal information yet.</span></div>}<form className="card formcard" onSubmit={async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const r=await api('enrol',{...f,kind,identifier,challengeId:challenge,consent});if(r){setIdentifier('');setChallenge('');notify('Verified customer enrolment completed.');go(u.role==='shop'?'/shop/dashboard':'/player/self-exclusion')}}}><fieldset className="plain-fieldset" disabled={!data.identityReady||busy}>{idFields()}<div className="formgrid"><Field label="Full legal name"><input name="fullName" autoComplete="off" maxLength={100} required/></Field><Field label="Date of birth (verification only)"><input name="dateOfBirth" type="date" required/></Field><Field label="State"><select name="state" defaultValue={u.state||'Lagos'}>{states.map(s=><option key={s}>{s}</option>)}</select></Field></div><label className="checkbox"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>{u.role==='shop'?'The customer is present and consents':'I consent'} to identity verification and enrolment. Enrolment alone does not activate self-exclusion.</label>{kind==='phone'&&<><button type="button" className="btn" disabled={!consent||busy} onClick={async()=>{const r=await api('phoneStart',{identifier,consent});if(r){setChallenge(r.challengeId);notify('Verification code requested.')}}}>Send verification code <Phone size={17}/></button>{challenge&&<Field label="Verification code"><input name="code" inputMode="numeric" autoComplete="one-time-code" required/></Field>}</>}<div className="notice">Only a successful response from the configured identity provider can verify a customer. Staff cannot manually mark an unverified identity as verified.</div><button className="btn primary" disabled={busy||!consent||kind==='phone'&&!challenge}>Verify identity & enrol <ShieldCheck size={18}/></button></fieldset></form></div>;
- if(path==='/shop/dashboard'||path==='/shop/verify')return <><div className="page-title"><span className="eyebrow">{data.shops?.[0]?.name||'OUTLET ASSIGNMENT REQUIRED'}</span><h1>Check a customer’s protection.</h1><p>Phone number or NIN. Minimum information. A clear service decision.</p></div><div className="split"><section className="card formcard"><form onSubmit={async e=>{e.preventDefault();setResult(null);if(!navigator.onLine){notify('Verification unavailable. Do not assume clearance.');return;}const f=Object.fromEntries(new FormData(e.currentTarget));const r=await api('verify',{kind,identifier,consent:f.consent==='on',identityConfirmed:f.identity==='on'});setIdentifier('');if(r)setResult(r)}}>{idFields()}<label className="checkbox"><input name="consent" type="checkbox" required/>The customer is present and consents to this check.</label><label className="checkbox"><input name="identity" type="checkbox" required/>I confirmed identity using the shop’s approved procedure. Knowing a number alone is not proof of identity.</label><button className="btn primary" disabled={busy||!u.shopId}>Check protection <Search size={18}/></button></form>{result&&<div className={`verification ${result.active?'blocked':'clear'}`}><ShieldCheck size={30}/><h2>{!result.matched?'No verified record found.':result.expires<=now?'Check expired.':result.active?'Active self-exclusion.':'No active exclusion found.'}</h2><p>{!result.matched?'Do not treat this as clearance. Verified enrolment is required.':result.expires<=now?'Run a fresh check before taking action.':result.active?'DO NOT ACCEPT A BET. Respect the customer’s choice.':'This does not guarantee eligibility to gamble. Other checks still apply.'}</p>{result.active&&result.expires>now&&<button className="btn dark" disabled={busy||result.refused} onClick={async()=>{if(await api('refuse',{id:result.id})){setResult({...result,refused:true});notify('Service refusal recorded.')}}}>{result.refused?'Refusal recorded':'Record service refused'}<Check size={17}/></button>}</div>}{result?.matched&&result.expires>now&&<form className="assisted-protection" onSubmit={async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const r=await api(result.active?'extend':'exclude',{checkId:result.id,days:Number(f.days),consent:f.consent==='on'});if(r){setResult({...result,active:true,confirmation:r});notify('Customer’s protection saved.')}}}><h3>Assisted {result.active?'extension':'self-exclusion'}</h3><p className="muted">For a customer without a personal device. Explain the period and obtain explicit consent.</p><Field label="Period to add"><select name="days" defaultValue="90">{data.durations.map((d:number)=><option value={d} key={d}>{durationLabels[d]}</option>)}</select></Field><label className="checkbox"><input name="consent" type="checkbox" required/>The customer voluntarily chooses this period and understands there is no early cancellation.</label><button className="btn primary" disabled={busy}>Save customer’s choice <ShieldCheck size={17}/></button>{result.confirmation&&<div className="notice vertical"><b>Protection confirmed</b><p>Starts {date(result.confirmation.start)} WAT<br/>Ends {date(result.confirmation.end)} WAT</p><button className="btn" type="button" onClick={()=>window.print()}>Print confirmation</button></div>}</form>}</section><aside><div className="card formcard"><span className="iconbox mint"><UserCheck/></span><h2>A person, not just a number.</h2><ol className="numberlist"><li>Explain the check and obtain consent.</li><li>Confirm the person’s identity.</li><li>Check their registered phone number or NIN.</li><li>Respect active protection and record refusal.</li></ol><button className="btn" onClick={()=>go('/shop/enrol')}>Enrol a customer without a phone <ArrowRight size={17}/></button></div><div className="notice">Never retain a full NIN in notes or screenshots. An unavailable check is never clearance.</div></aside></div>{checks()}</>;
- if(path==='/player/exclusion-status'){const ex=data.exclusion,active=ex?.end>now;return <><div className="page-title"><h1>{active?'Your choice is protected.':'My protection.'}</h1><p>Registered phone number or NIN identifies your record at participating outlets.</p></div><div className="split"><section className="protection-card"><span className="eyebrow">MY PROTECTION STATUS</span><h2>{active?'Self-exclusion active':ex?'Period completed':data.customer?'Ready to activate':'Enrolment required'}</h2>{ex&&<><div className="remaining"><strong>{ex.end===253402300799000?'∞':Math.max(0,Math.ceil((ex.end-now)/86400000))}</strong><span>days remaining</span></div><p>Start: {date(ex.start)} WAT<br/>End: {date(ex.end)} WAT</p></>}<button className="btn dark" onClick={()=>go(data.customer?'/player/self-exclusion':'/register')}>{active?'Extend my protection':data.customer?'Start protection':'Complete enrolment'}<ArrowRight size={18}/></button></section><div className="card formcard"><span className="iconbox mint"><IdCard/></span><h2>Your shop verification</h2><p>{data.customer?`Verified registration: ${data.customer.masked}`:'Complete verified enrolment before activating protection.'}</p><p>{data.demoMode?'Give the attendant your fictional DEMO ID. Never enter a real NIN in this pilot.':'Give an authorised attendant your registered phone number or NIN.'} They must confirm your identity and consent. Your assessment and reports are not shown to shop staff.</p><p className="muted">A completed period does not mean a person is safe to gamble.</p></div></div></>}
- if(path.startsWith('/owner'))return <><div className="page-title"><h1>Protection across your outlets.</h1></div>{outlets()}{addOutlet()}<div className="card formcard"><h2>Staff access</h2><form onSubmit={async e=>{e.preventDefault();if(await api('addAttendant',Object.fromEntries(new FormData(e.currentTarget))))notify('Attendant access assigned. No email was sent.')}}><Field label="Staff email"><input name="email" type="email" required/></Field><Field label="Your outlet"><select name="shopId" required>{data.shops?.map((s:any)=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field><button className="btn primary" disabled={busy}>Assign attendant</button></form>{data.attendants?.map((a:any)=><p key={a.id}>{a.email||a.name} · Training {a.trained?'acknowledged':'pending'}</p>)}</div>{checks()}</>;
- if(path.startsWith('/admin'))return <><div className="page-title"><span className="eyebrow">ADMINISTRATOR WORKSPACE</span><h1>{path.endsWith('users')?'Accounts and permissions.':path.endsWith('audit')?'Accountable activity.':'Manage SafeBet Protect.'}</h1><p>Signed-in accounts, assigned permissions and private customer records.</p></div>{path.endsWith('users')?<><form className="card formcard" onSubmit={async e=>{e.preventDefault();if(await api('assign',Object.fromEntries(new FormData(e.currentTarget))))notify('Role assignment saved. No invitation email was sent.')}}><h2>Assign account access</h2><p>The person must sign in with this exact email. Granting Site visitor access is a separate step.</p><div className="formgrid"><Field label="Account email"><input name="email" type="email" required/></Field><Field label="Role"><select name="role"><option value="player">Player</option><option value="shop">Shop attendant</option><option value="owner">Shop owner</option><option value="regulator">State case reviewer</option></select></Field><Field label="State"><select name="state" defaultValue="Lagos">{states.map(s=><option key={s}>{s}</option>)}</select></Field>{data.demoMode&&<Field label="Pilot jurisdiction"><select name="jurisdictionId" required>{data.jurisdictions?.map((j:any)=><option key={j.id} value={j.id}>{j.name}</option>)}</select></Field>}<Field label="Outlet (required for shop staff)"><select name="shopId"><option value="">Choose an outlet</option>{data.shops.map((s:any)=><option value={s.id} key={s.id}>{s.name}</option>)}</select></Field></div><button className="btn primary" disabled={busy}>Save assignment <UserCheck size={17}/></button></form><div className="card tablewrap"><table><thead><tr><th>Email</th><th>Role</th><th>State</th></tr></thead><tbody>{data.assignments.map((a:any)=><tr key={a.id}><td>{a.email}</td><td>{a.role}</td><td>{a.state}</td></tr>)}</tbody></table><p className="muted">Assign Player to remove staff permissions. The configured administrator cannot be changed here.</p></div></>:path.endsWith('audit')?<div className="card tablewrap"><table><thead><tr><th>Time</th><th>Action</th><th>Record reference</th></tr></thead><tbody>{data.audit.map((a:any)=><tr key={a.id}><td>{date(a.at)}</td><td>{a.action}</td><td>{a.target}</td></tr>)}</tbody></table>{!data.audit.length&&<p>No activity yet.</p>}</div>:path.endsWith('resources')?<><form className="card formcard" onSubmit={async e=>{e.preventDefault();if(await api('resource',Object.fromEntries(new FormData(e.currentTarget))))notify('Public resource saved.')}}><h2>Add a support resource</h2><Field label="Title"><input name="title" required maxLength={150}/></Field><Field label="Content"><textarea name="text" required rows={6} maxLength={5000}/></Field><button className="btn primary" disabled={busy}>Publish resource</button></form><div className="card formcard"><h2>Support requests</h2>{data.support.length?data.support.map((s:any)=><p key={s.id}>{s.message}<br/><small>{s.status}</small></p>):<p>No support requests received.</p>}</div></>:path.endsWith('config')?<form className="card formcard" onSubmit={async e=>{e.preventDefault();if(await api('config',{durations:new FormData(e.currentTarget).getAll('duration').map(Number)}))notify('Available future periods updated.')}}><h2>Available protection periods</h2><p>Existing exclusions are not changed. There is no cancellation or shortening override.</p><div className="period-checks">{Object.entries(durationLabels).map(([n,label])=><label className="checkbox" key={n}><input type="checkbox" name="duration" value={n} defaultChecked={data.durations.includes(Number(n))}/>{label}</label>)}</div><button className="btn primary" disabled={busy}>Save periods <Check size={17}/></button></form>:<><div className="stat-grid">{[['Signed-in accounts',data.users.length],['Registered outlets',data.shops.length],['Reports',data.complaints.length],['Checks',data.checks.length]].map(([h,n])=><div className="card stat" key={h}><span>{h}</span><strong>{n}</strong></div>)}</div><div className="card formcard"><span className="iconbox mint"><IdCard/></span><h2>Identity verification setup</h2><p>{data.identityReady?'Provider configured. Complete live acceptance testing before opening customer enrolment.':'Connection required. Customer enrolment is closed until an authorised identity-provider adapter is configured.'}</p><p className="muted">Keep provider credentials in secure server settings, not in reports or forms.</p><button className="btn primary" onClick={()=>go('/admin/users')}>Assign staff access <ArrowRight size={17}/></button></div>{outlets()}{addOutlet()}</>}</>;
- if(path==='/privacy'||path==='/about')return <div className="narrow wide"><div className="page-title"><h1>{path==='/privacy'?'Your information deserves protection.':'Protection should reach physical shops.'}</h1></div><div className="card formcard"><h2>Independent player protection</h2><p>SafeBet Protect is independent, not an official SafePlay or government service. Coverage applies only to outlets that actually participate.</p><h3>Phone number or NIN</h3><p>Enrolment requires consent and a successful identity-provider response. Customers without a phone can enrol with NIN through an authorised attendant. Knowing a number alone does not prove identity.</p><h3>Information retained</h3><p>Full NINs and raw phone identifiers are not saved. Secret-key fingerprints allow matching. Profile names, masked endings, consent records, assessments, reports and evidence are encrypted in storage. Date of birth is used transiently for verification.</p><h3>Permissions</h3><p>Staff permissions come from administrator assignments. Shop staff cannot view private assessments or complaints. Case reviewers are restricted to their assigned state.</p><h3>Readiness and coverage</h3><p>Identity verification must be connected before enrolment opens. Partner operating procedures, retention arrangements and official reporting channels must be established before wider rollout. No government submission integration is currently connected.</p><h3>Data and support requests</h3><p>Contact the administrator through an account support request. Do not include full NINs or identity documents in messages. This platform is not an emergency-response service.</p></div></div>;
- if(path==='/how-it-works')return <><div className="page-title"><h1>One choice. Shared protection.</h1><p>For customers with a phone — and those without one.</p></div><div className="resource-grid">{[['01','Verify your identity','Enrol by phone number or NIN through the configured provider. Staff can assist with consent.'],['02','Choose a period','Activate voluntary protection. Extend it when needed; never cancel or shorten it early.'],['03','Check at the shop','An authorised attendant checks your registered identifier and confirms your identity.'],['04','Respect protection','Active exclusion means service is refused under the participating shop’s procedure.'],['05','Raise a concern','Save a confidential report and follow updates. Government submission is separate.'],['06','Find support','Reflect privately and get practical guidance. Expiry is not clearance to gamble.']].map(([n,h,p])=><section className="card formcard" key={n}><span className="stepnum">{n}</span><h3>{h}</h3><p>{p}</p></section>)}</div></>;
- return <AccessPage user={u}/>;
+"use client";
+import Link from "next/link";
+import React, { useState } from "react";
+import {
+  ShieldCheck,
+  Phone,
+  IdCard,
+  ArrowRight,
+  Check,
+  Search,
+  AlertTriangle,
+  UserCheck,
+  Store,
+  Plus,
+  LockKeyhole,
+} from "lucide-react";
+import { states, durationLabels } from "../lib/constants";
+const date = (v: number) =>
+  v === 253402300799000
+    ? "Indefinite"
+    : new Date(v).toLocaleString("en-NG", {
+        timeZone: "Africa/Lagos",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+const Field = ({ label, children }: any) => (
+  <label className="field">
+    <span>{label}</span>
+    {children}
+  </label>
+);
+export function AccessPage({ user }: any) {
+  return (
+    <div className="narrow">
+      <div className="page-title">
+        <h1>
+          {user ? "Your assigned workspace." : "Welcome to SafeBet Protect."}
+        </h1>
+        <p>
+          {user
+            ? "This page requires an assigned role. Contact your administrator if you need staff access."
+            : "Sign in to access your account. Customers without a phone can enrol with help from an authorised attendant."}
+        </p>
+      </div>
+      <div className="card formcard">
+        {user ? (
+          <a className="btn primary" href={`/${user.role}/dashboard`}>
+            Open my workspace <ArrowRight size={17} />
+          </a>
+        ) : (
+          <Link className="btn primary" href="/signin">
+            Sign in securely <ArrowRight size={17} />
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+export default function ProductionPage({
+  path,
+  data,
+  api,
+  go,
+  notify,
+  busy,
+  now,
+  checks,
+}: any) {
+  const [kind, setKind] = useState("phone"),
+    [identifier, setIdentifier] = useState(""),
+    [consent, setConsent] = useState(false),
+    [challenge, setChallenge] = useState(""),
+    [result, setResult] = useState<any>(null);
+  const u = data.user;
+  function idFields() {
+    return (
+      <>
+        <div className="method-tabs">
+          <button
+            type="button"
+            className={kind === "phone" ? "selected" : ""}
+            onClick={() => {
+              setKind("phone");
+              setIdentifier("");
+              setChallenge("");
+              setResult(null);
+            }}
+          >
+            <Phone size={20} />
+            Phone number
+          </button>
+          <button
+            type="button"
+            className={kind === "nin" ? "selected" : ""}
+            onClick={() => {
+              setKind("nin");
+              setIdentifier("");
+              setChallenge("");
+              setResult(null);
+            }}
+          >
+            <IdCard size={20} />
+            NIN · no phone needed
+          </button>
+        </div>
+        <Field
+          label={
+            kind === "phone"
+              ? "Customer phone number"
+              : "National Identification Number (NIN)"
+          }
+        >
+          <input
+            type={kind === "phone" ? "tel" : "password"}
+            value={identifier}
+            onChange={(e) => {
+              setIdentifier(e.target.value);
+              setChallenge("");
+              setResult(null);
+            }}
+            maxLength={kind === "nin" ? 11 : 18}
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder={kind === "nin" ? "11-digit NIN" : "080… or +23480…"}
+            required
+          />
+        </Field>
+        <p className="muted">
+          {kind === "nin"
+            ? "A personal phone is not required. Full NINs are not saved or displayed in results."
+            : "Use the registered number. A number identifies a record; it does not prove who is presenting it."}
+        </p>
+      </>
+    );
+  }
+  function outlets() {
+    return (
+      <div className="card formcard">
+        <h2>Participating outlets</h2>
+        {data.shops?.length ? (
+          data.shops.map((s: any) => (
+            <div className="outlet" key={s.id}>
+              <Store size={22} />
+              <div>
+                <b>{s.name}</b>
+                <p>
+                  {s.location}, {s.state} · {s.licence}
+                </p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p>No outlets have been registered yet.</p>
+        )}
+      </div>
+    );
+  }
+  function addOutlet() {
+    return (
+      <form
+        className="card formcard"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (
+            await api(
+              "addShop",
+              Object.fromEntries(new FormData(e.currentTarget)),
+            )
+          )
+            notify(
+              "Outlet registered. An administrator can now assign its staff.",
+            );
+        }}
+      >
+        <h2>Register an outlet</h2>
+        <div className="formgrid">
+          <Field label="Shop name">
+            <input name="name" required maxLength={100} />
+          </Field>
+          <Field label="Location">
+            <input name="location" required maxLength={200} />
+          </Field>
+          <Field label="State">
+            <select name="state" defaultValue="Lagos">
+              {states.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Licence reference">
+            <input name="licence" required maxLength={80} />
+          </Field>
+        </div>
+        <button className="btn primary" disabled={busy}>
+          Register outlet <Plus size={17} />
+        </button>
+      </form>
+    );
+  }
+  if (path === "/register" || path === "/shop/enrol")
+    return (
+      <div className="narrow wide">
+        <div className="page-title">
+          <span className="eyebrow">
+            {u.role === "shop"
+              ? "ASSISTED CUSTOMER ENROLMENT"
+              : "YOUR PROTECTION STARTS HERE"}
+          </span>
+          <h1>
+            {u.role === "shop"
+              ? "No phone? They can still enrol."
+              : "Enrol with phone number or NIN."}
+          </h1>
+          <p>
+            Choose a verification method. Enrolment requires identity
+            confirmation and voluntary consent.
+          </p>
+        </div>
+        {!data.identityReady && (
+          <div className="notice">
+            <AlertTriangle size={20} />
+            <span>
+              <b>Identity verification is not connected yet.</b>
+              <br />
+              Enrolment is closed until the verification service is configured.
+              Do not enter personal information yet.
+            </span>
+          </div>
+        )}
+        <form
+          className="card formcard"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const f = Object.fromEntries(new FormData(e.currentTarget));
+            const r = await api("enrol", {
+              ...f,
+              kind,
+              identifier,
+              challengeId: challenge,
+              consent,
+            });
+            if (r) {
+              setIdentifier("");
+              setChallenge("");
+              notify("Verified customer enrolment completed.");
+              go(
+                u.role === "shop"
+                  ? "/shop/dashboard"
+                  : "/player/self-exclusion",
+              );
+            }
+          }}
+        >
+          <fieldset
+            className="plain-fieldset"
+            disabled={!data.identityReady || busy}
+          >
+            {idFields()}
+            <div className="formgrid">
+              <Field label="Full legal name">
+                <input
+                  name="fullName"
+                  autoComplete="off"
+                  maxLength={100}
+                  required
+                />
+              </Field>
+              <Field label="Date of birth (verification only)">
+                <input name="dateOfBirth" type="date" required />
+              </Field>
+              <Field label="State">
+                <select name="state" defaultValue={u.state || "Lagos"}>
+                  {states.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                required
+              />
+              {u.role === "shop"
+                ? "The customer is present and consents"
+                : "I consent"}{" "}
+              to identity verification and enrolment. Enrolment alone does not
+              activate self-exclusion.
+            </label>
+            {kind === "phone" && (
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!consent || busy}
+                  onClick={async () => {
+                    const r = await api("phoneStart", { identifier, consent });
+                    if (r) {
+                      setChallenge(r.challengeId);
+                      notify("Verification code requested.");
+                    }
+                  }}
+                >
+                  Send verification code <Phone size={17} />
+                </button>
+                {challenge && (
+                  <Field label="Verification code">
+                    <input
+                      name="code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      required
+                    />
+                  </Field>
+                )}
+              </>
+            )}
+            <div className="notice">
+              Only a successful response from the configured identity provider
+              can verify a customer. Staff cannot manually mark an unverified
+              identity as verified.
+            </div>
+            <button
+              className="btn primary"
+              disabled={busy || !consent || (kind === "phone" && !challenge)}
+            >
+              Verify identity & enrol <ShieldCheck size={18} />
+            </button>
+          </fieldset>
+        </form>
+      </div>
+    );
+  if (path === "/shop/dashboard" || path === "/shop/verify")
+    return (
+      <>
+        <div className="page-title">
+          <span className="eyebrow">
+            {data.shops?.[0]?.name || "OUTLET ASSIGNMENT REQUIRED"}
+          </span>
+          <h1>Check a customer’s protection.</h1>
+          <p>
+            Phone number or NIN. Minimum information. A clear service decision.
+          </p>
+        </div>
+        <div className="split">
+          <section className="card formcard">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setResult(null);
+                if (!navigator.onLine) {
+                  notify("Verification unavailable. Do not assume clearance.");
+                  return;
+                }
+                const f = Object.fromEntries(new FormData(e.currentTarget));
+                const r = await api("verify", {
+                  kind,
+                  identifier,
+                  consent: f.consent === "on",
+                  identityConfirmed: f.identity === "on",
+                });
+                setIdentifier("");
+                if (r) setResult(r);
+              }}
+            >
+              {idFields()}
+              <label className="checkbox">
+                <input name="consent" type="checkbox" required />
+                The customer is present and consents to this check.
+              </label>
+              <label className="checkbox">
+                <input name="identity" type="checkbox" required />I confirmed
+                identity using the shop’s approved procedure. Knowing a number
+                alone is not proof of identity.
+              </label>
+              <button className="btn primary" disabled={busy || !u.shopId}>
+                Check protection <Search size={18} />
+              </button>
+            </form>
+            {result && (
+              <div
+                className={`verification ${!result.matched || result.expires <= now ? "uncertain" : result.active ? "blocked" : "clear"}`}
+              >
+                <ShieldCheck size={30} />
+                <h2>
+                  {!result.matched
+                    ? "No verified record found."
+                    : result.expires <= now
+                      ? "Check expired."
+                      : result.active
+                        ? "Active self-exclusion."
+                        : "No active exclusion found."}
+                </h2>
+                <p>
+                  {!result.matched
+                    ? "Do not treat this as clearance. Verified enrolment is required."
+                    : result.expires <= now
+                      ? "Run a fresh check before taking action."
+                      : result.active
+                        ? "DO NOT ACCEPT A BET. Respect the customer’s choice."
+                        : "This does not guarantee eligibility to gamble. Other checks still apply."}
+                </p>
+                {result.active && result.expires > now && (
+                  <button
+                    className="btn dark"
+                    disabled={busy || result.refused}
+                    onClick={async () => {
+                      if (await api("refuse", { id: result.id })) {
+                        setResult({ ...result, refused: true });
+                        notify("Service refusal recorded.");
+                      }
+                    }}
+                  >
+                    {result.refused
+                      ? "Refusal recorded"
+                      : "Record service refused"}
+                    <Check size={17} />
+                  </button>
+                )}
+              </div>
+            )}
+            {result?.matched && result.expires > now && (
+              <form
+                className="assisted-protection"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const f = Object.fromEntries(new FormData(e.currentTarget));
+                  const r = await api(result.active ? "extend" : "exclude", {
+                    checkId: result.id,
+                    days: Number(f.days),
+                    consent: f.consent === "on",
+                  });
+                  if (r) {
+                    setResult({ ...result, active: true, confirmation: r });
+                    notify("Customer’s protection saved.");
+                  }
+                }}
+              >
+                <h3>
+                  Assisted {result.active ? "extension" : "self-exclusion"}
+                </h3>
+                <p className="muted">
+                  For a customer without a personal device. Explain the period
+                  and obtain explicit consent.
+                </p>
+                <Field label="Period to add">
+                  <select name="days" defaultValue="90">
+                    {data.durations.map((d: number) => (
+                      <option value={d} key={d}>
+                        {durationLabels[d]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <label className="checkbox">
+                  <input name="consent" type="checkbox" required />
+                  The customer voluntarily chooses this period and understands
+                  there is no early cancellation.
+                </label>
+                <button className="btn primary" disabled={busy}>
+                  Save customer’s choice <ShieldCheck size={17} />
+                </button>
+                {result.confirmation && (
+                  <div className="notice vertical">
+                    <b>Protection confirmed</b>
+                    <p>
+                      Starts {date(result.confirmation.start)} WAT
+                      <br />
+                      Ends {date(result.confirmation.end)} WAT
+                    </p>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => window.print()}
+                    >
+                      Print confirmation
+                    </button>
+                  </div>
+                )}
+              </form>
+            )}
+          </section>
+          <aside>
+            <div className="card formcard">
+              <span className="iconbox mint">
+                <UserCheck />
+              </span>
+              <h2>A person, not just a number.</h2>
+              <ol className="numberlist">
+                <li>Explain the check and obtain consent.</li>
+                <li>Confirm the person’s identity.</li>
+                <li>Check their registered phone number or NIN.</li>
+                <li>Respect active protection and record refusal.</li>
+              </ol>
+              <button className="btn" onClick={() => go("/shop/enrol")}>
+                Enrol a customer without a phone <ArrowRight size={17} />
+              </button>
+            </div>
+            <div className="notice">
+              Never retain a full NIN in notes or screenshots. An unavailable
+              check is never clearance.
+            </div>
+          </aside>
+        </div>
+        {checks()}
+      </>
+    );
+  if (path === "/player/exclusion-status") {
+    const ex = data.exclusion,
+      active = ex?.end > now;
+    return (
+      <>
+        <div className="page-title">
+          <h1>{active ? "Your choice is protected." : "My protection."}</h1>
+          <p>
+            Registered phone number or NIN identifies your record at
+            participating outlets.
+          </p>
+        </div>
+        <div className="split">
+          <section className="protection-card">
+            <span className="eyebrow">MY PROTECTION STATUS</span>
+            <h2>
+              {active
+                ? "YOUR SELF-EXCLUSION IS ACTIVE"
+                : ex
+                  ? "Period completed"
+                  : data.customer
+                    ? "Ready to activate"
+                    : "Enrolment required"}
+            </h2>
+            {ex && (
+              <>
+                <div className="remaining">
+                  <strong>
+                    {ex.end === 253402300799000
+                      ? "∞"
+                      : Math.max(0, Math.ceil((ex.end - now) / 86400000))}
+                  </strong>
+                  <span>days remaining</span>
+                </div>
+                <p>
+                  Start: {date(ex.start)} WAT
+                  <br />
+                  End: {date(ex.end)} WAT
+                </p>
+              </>
+            )}
+            <button
+              className="btn dark"
+              onClick={() =>
+                go(data.customer ? "/player/self-exclusion" : "/register")
+              }
+            >
+              {active
+                ? "Extend my protection"
+                : data.customer
+                  ? "Start protection"
+                  : "Complete enrolment"}
+              <ArrowRight size={18} />
+            </button>
+          </section>
+          <div className="card formcard">
+            <span className="iconbox mint">
+              <IdCard />
+            </span>
+            <h2>Your shop verification</h2>
+            <p>
+              {data.customer
+                ? `${data.demoMode ? "Fictional reference" : "Verified registration"}: ${data.customer.masked}`
+                : "Complete verified enrolment before activating protection."}
+            </p>
+            <p>
+              {data.demoMode
+                ? "Give the attendant your fictional DEMO ID. Never enter a real NIN in this pilot."
+                : "Give an authorised attendant your registered phone number or NIN."}{" "}
+              They must confirm your identity and consent. Your assessment and
+              reports are not shown to shop staff.
+            </p>
+            <p className="muted">
+              A completed period does not mean a person is safe to gamble.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
+  if (path.startsWith("/owner"))
+    return (
+      <>
+        <div className="page-title">
+          <h1>Protection across your outlets.</h1>
+        </div>
+        {path !== "/owner/attendants" && outlets()}
+        {path === "/owner/shops" && addOutlet()}
+        {path === "/owner/attendants" && (
+          <div className="card formcard">
+            <h2>Staff access</h2>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (
+                  await api(
+                    "addAttendant",
+                    Object.fromEntries(new FormData(e.currentTarget)),
+                  )
+                )
+                  notify("Attendant access assigned. No email was sent.");
+              }}
+            >
+              <Field label="Staff email">
+                <input name="email" type="email" required />
+              </Field>
+              <Field label="Your outlet">
+                <select name="shopId" required>
+                  {data.shops?.map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button className="btn primary" disabled={busy}>
+                Assign attendant
+              </button>
+            </form>
+            {data.attendants?.map((a: any) => (
+              <p key={a.id}>
+                {a.email || a.name} · Training{" "}
+                {a.trained ? "acknowledged" : "pending"}
+              </p>
+            ))}
+          </div>
+        )}
+        {path === "/owner/dashboard" && checks()}
+      </>
+    );
+  if (path.startsWith("/admin"))
+    return (
+      <>
+        <div className="page-title">
+          <span className="eyebrow">ADMINISTRATOR WORKSPACE</span>
+          <h1>
+            {path.endsWith("users")
+              ? "Accounts and permissions."
+              : path.endsWith("audit")
+                ? "Accountable activity."
+                : "Manage SafeBet Protect."}
+          </h1>
+          <p>
+            Signed-in accounts, assigned permissions and private customer
+            records.
+          </p>
+        </div>
+        {path.endsWith("users") ? (
+          <>
+            <form
+              className="card formcard"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (
+                  await api(
+                    "assign",
+                    Object.fromEntries(new FormData(e.currentTarget)),
+                  )
+                )
+                  notify(
+                    "Role assignment saved. No invitation email was sent.",
+                  );
+              }}
+            >
+              <h2>Assign account access</h2>
+              <p>
+                The person must sign in with this exact email. Access is checked
+                on the server for every request.
+              </p>
+              <div className="formgrid">
+                <Field label="Account email">
+                  <input name="email" type="email" required />
+                </Field>
+                <Field label="Role">
+                  <select name="role">
+                    <option value="player">Player</option>
+                    <option value="shop">Shop attendant</option>
+                    <option value="owner">Shop owner</option>
+                    <option value="regulator">State case reviewer</option>
+                  </select>
+                </Field>
+                <Field label="State">
+                  <select name="state" defaultValue="Lagos">
+                    {states.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                </Field>
+                {data.demoMode && (
+                  <Field label="Pilot jurisdiction">
+                    <select name="jurisdictionId" required>
+                      {data.jurisdictions?.map((j: any) => (
+                        <option key={j.id} value={j.id}>
+                          {j.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                <Field label="Outlet (required for shop staff)">
+                  <select name="shopId">
+                    <option value="">Choose an outlet</option>
+                    {data.shops.map((s: any) => (
+                      <option value={s.id} key={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+              <button className="btn primary" disabled={busy}>
+                Save assignment <UserCheck size={17} />
+              </button>
+            </form>
+            <div className="card tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.assignments.map((a: any) => (
+                    <tr key={a.id}>
+                      <td>{a.email}</td>
+                      <td>{a.role}</td>
+                      <td>{a.state}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted">
+                Assign Player to remove staff permissions. The configured
+                administrator cannot be changed here.
+              </p>
+            </div>
+          </>
+        ) : path.endsWith("audit") ? (
+          <div className="card tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Action</th>
+                  <th>Record reference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.audit.map((a: any) => (
+                  <tr key={a.id}>
+                    <td>{date(a.at)}</td>
+                    <td>{a.action}</td>
+                    <td>{a.target}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!data.audit.length && <p>No activity yet.</p>}
+          </div>
+        ) : path.endsWith("resources") ? (
+          <>
+            <form
+              className="card formcard"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (
+                  await api(
+                    "resource",
+                    Object.fromEntries(new FormData(e.currentTarget)),
+                  )
+                )
+                  notify("Public resource saved.");
+              }}
+            >
+              <h2>Add a support resource</h2>
+              <Field label="Title">
+                <input name="title" required maxLength={150} />
+              </Field>
+              <Field label="Content">
+                <textarea name="text" required rows={6} maxLength={5000} />
+              </Field>
+              <button className="btn primary" disabled={busy}>
+                Publish resource
+              </button>
+            </form>
+            <div className="card formcard">
+              <h2>Support requests</h2>
+              {data.support.length ? (
+                data.support.map((s: any) => (
+                  <p key={s.id}>
+                    {s.message}
+                    <br />
+                    <small>{s.status}</small>
+                  </p>
+                ))
+              ) : (
+                <p>No support requests received.</p>
+              )}
+            </div>
+          </>
+        ) : path.endsWith("config") ? (
+          <form
+            className="card formcard"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                await api("config", {
+                  durations: new FormData(e.currentTarget)
+                    .getAll("duration")
+                    .map(Number),
+                })
+              )
+                notify("Available future periods updated.");
+            }}
+          >
+            <h2>Available protection periods</h2>
+            <p>
+              Existing exclusions are not changed. There is no cancellation or
+              shortening override.
+            </p>
+            <div className="period-checks">
+              {Object.entries(durationLabels).map(([n, label]) => (
+                <label className="checkbox" key={n}>
+                  <input
+                    type="checkbox"
+                    name="duration"
+                    value={n}
+                    defaultChecked={data.durations.includes(Number(n))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <button className="btn primary" disabled={busy}>
+              Save periods <Check size={17} />
+            </button>
+          </form>
+        ) : (
+          <>
+            <div className="stat-grid">
+              {[
+                ["Signed-in accounts", data.users.length],
+                ["Registered outlets", data.shops.length],
+                ["Reports", data.complaints.length],
+                ["Checks", data.checks.length],
+              ].map(([h, n]) => (
+                <div className="card stat" key={h}>
+                  <span>{h}</span>
+                  <strong>{n}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="card formcard">
+              <span className="iconbox mint">
+                <IdCard />
+              </span>
+              <h2>Identity verification setup</h2>
+              <p>
+                {data.identityReady
+                  ? "Provider configured. Complete live acceptance testing before opening customer enrolment."
+                  : "Connection required. Customer enrolment is closed until an authorised identity-provider adapter is configured."}
+              </p>
+              <p className="muted">
+                Keep provider credentials in secure server settings, not in
+                reports or forms.
+              </p>
+              <button
+                className="btn primary"
+                onClick={() => go("/admin/users")}
+              >
+                Assign staff access <ArrowRight size={17} />
+              </button>
+            </div>
+            {outlets()}
+            {addOutlet()}
+          </>
+        )}
+      </>
+    );
+  if (path === "/privacy" || path === "/about")
+    return (
+      <div className="narrow wide">
+        <div className="page-title">
+          <h1>
+            {path === "/privacy"
+              ? "Your information deserves protection."
+              : "Protection should reach physical shops."}
+          </h1>
+        </div>
+        <div className="card formcard">
+          <h2>Independent player protection</h2>
+          <p>
+            SafeBet Protect is independent, not an official SafePlay or
+            government service. Coverage applies only to outlets that actually
+            participate.
+          </p>
+          <h3>Phone number or NIN</h3>
+          <p>
+            Enrolment requires consent and a successful identity-provider
+            response. Customers without a phone can enrol with NIN through an
+            authorised attendant. Knowing a number alone does not prove
+            identity.
+          </p>
+          <h3>Information retained</h3>
+          <p>
+            Full NINs and raw phone identifiers are not saved. Secret-key
+            fingerprints allow matching. Profile names, masked endings, consent
+            records, assessments, reports and evidence are encrypted in storage.
+            Date of birth is used transiently for verification.
+          </p>
+          <h3>Permissions</h3>
+          <p>
+            Staff permissions come from administrator assignments. Shop staff
+            cannot view private assessments or complaints. Case reviewers are
+            restricted to their assigned state.
+          </p>
+          <h3>Readiness and coverage</h3>
+          <p>
+            Identity verification must be connected before enrolment opens.
+            Partner operating procedures, retention arrangements and official
+            reporting channels must be established before wider rollout. No
+            government submission integration is currently connected.
+          </p>
+          <h3>Data and support requests</h3>
+          <p>
+            Contact the administrator through an account support request. Do not
+            include full NINs or identity documents in messages. This platform
+            is not an emergency-response service.
+          </p>
+        </div>
+      </div>
+    );
+  if (path === "/how-it-works")
+    return (
+      <>
+        <div className="page-title">
+          <h1>One choice. Shared protection.</h1>
+          <p>For customers with a phone — and those without one.</p>
+        </div>
+        <div className="resource-grid">
+          {[
+            [
+              "01",
+              "Verify your identity",
+              "Enrol by phone number or NIN through the configured provider. Staff can assist with consent.",
+            ],
+            [
+              "02",
+              "Choose a period",
+              "Activate voluntary protection. Extend it when needed; never cancel or shorten it early.",
+            ],
+            [
+              "03",
+              "Check at the shop",
+              "An authorised attendant checks your registered identifier and confirms your identity.",
+            ],
+            [
+              "04",
+              "Respect protection",
+              "Active exclusion means service is refused under the participating shop’s procedure.",
+            ],
+            [
+              "05",
+              "Raise a concern",
+              "Save a confidential report and follow updates. Government submission is separate.",
+            ],
+            [
+              "06",
+              "Find support",
+              "Reflect privately and get practical guidance. Expiry is not clearance to gamble.",
+            ],
+          ].map(([n, h, p]) => (
+            <section className="card formcard" key={n}>
+              <span className="stepnum">{n}</span>
+              <h3>{h}</h3>
+              <p>{p}</p>
+            </section>
+          ))}
+        </div>
+      </>
+    );
+  return <AccessPage user={u} />;
 }

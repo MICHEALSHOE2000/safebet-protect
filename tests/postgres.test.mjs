@@ -38,8 +38,8 @@ test('Postgres migration, encrypted records, atomic enrolment and exclusions',as
    db.prepare('INSERT INTO identity_index VALUES (?,?,?)').bind('alias','c2','nin'),
   ]));
   assert.equal(await db.prepare('SELECT * FROM identity_index WHERE fingerprint=?').bind('alias').first(),null);
-  env.IDENTITY_PROVIDER_URL='https://identity.example.test';env.IDENTITY_PROVIDER_TOKEN='test-only';
-  globalThis.fetch=async()=>Response.json({verified:true,identityMatched:true,method:'nin',subjectId:'subject-1'});
+  env.IDENTITY_PROVIDER_APPROVED='true';env.IDENTITY_PROVIDER_URL='https://identity.example.test';env.IDENTITY_PROVIDER_TOKEN='test-only';
+  globalThis.fetch=async()=>Response.json({verified:true,adultVerified:true,identityMatched:true,method:'nin',subjectId:'subject-1'});
   const enrolled=await enroll({id:'p1',role:'player'},{kind:'nin',identifier:'12345678901',fullName:'Test Person',dateOfBirth:'1990-01-01',state:'Lagos',consent:true});
   assert.equal((await get(enrolled.customerId)).masked,'NIN ••••8901');
   const indexes=(await pg.query('SELECT * FROM safebet.identity_index')).rows;

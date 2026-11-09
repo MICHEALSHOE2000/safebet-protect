@@ -7,6 +7,7 @@ function storage() {
   return createClient(url, key, {auth: {persistSession: false, autoRefreshToken: false}}).storage.from('safebet-evidence');
 }
 export const env = {
+  get IDENTITY_PROVIDER_APPROVED() {return process.env.IDENTITY_PROVIDER_APPROVED;},
   get DATA_ENCRYPTION_KEY() { return process.env.DATA_ENCRYPTION_KEY; },
   get IDENTITY_LOOKUP_PEPPER() { return process.env.IDENTITY_LOOKUP_PEPPER; },
   get ADMIN_EMAIL() { return process.env.ADMIN_EMAIL; },

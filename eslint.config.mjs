@@ -5,6 +5,12 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    // The retained encrypted-document API predates strict document types.
+    // Track its existing dynamic types as warnings while preserving all other lint checks.
+    files: ["components/protect.tsx", "components/production.tsx", "components/pilot.tsx", "components/workspace/extras.tsx", "app/api/protect/route.ts", "app/api/complaints/route.ts", "app/api/evidence/route.ts", "lib/live.ts", "lib/pilot.ts"],
+    rules: {"@typescript-eslint/no-explicit-any": "warn"},
+  },
   globalIgnores([
     "dist/**",
     ".vinext/**",

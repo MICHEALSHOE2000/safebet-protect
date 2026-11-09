@@ -14,6 +14,8 @@ const url=new URL(process.env.DATABASE_URL);for(const k of ['sslmode','sslcert',
 const pool=new Pool({connectionString:url.toString(),ssl:{rejectUnauthorized:true,...(process.env.DATABASE_CA_CERT?{ca:process.env.DATABASE_CA_CERT.replace(/\\n/g,'\n')}:{})}});
 const client=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}});
 try{
+ const guard=await pool.query('SELECT mode FROM safebet.deployment_guard WHERE singleton=true');
+ if(guard.rows[0]?.mode!=='demo'||!process.env.SAFEBET_DEMO_PROJECT_REF||new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname!==process.env.SAFEBET_DEMO_PROJECT_REF+'.supabase.co')throw Error('Demo project isolation and database marker are required before seeding.');
  const existing=[];for(let page=1;;page++){const {data,error}=await client.auth.admin.listUsers({page,perPage:1000});if(error)throw error;existing.push(...data.users);if(data.users.length<1000)break;}
  const users=[];for(const email of emails){let user=existing.find(u=>u.email?.toLowerCase()===email.toLowerCase());if(!user){const {data,error}=await client.auth.admin.createUser({email,email_confirm:true});if(error)throw error;user=data.user;}users.push(user);}
  const connection=await pool.connect();
