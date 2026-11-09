@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {GET,POST} from '../app/api/protect/route.ts';import {env,sql,requestContext} from './mock-env.mjs';import {encrypt,decrypt,exclusion} from '../lib/live.ts';
 const origin='https://app.example.test';
 const admin={id:'owner',email:'admin@example.test'},player={id:'person',email:'person@example.test'},staff={id:'staff',email:'staff@example.test'},lagos={id:'lagos',email:'lagos@example.test'},oyo={id:'oyo',email:'oyo@example.test'};
-function headers(u){return new Headers(u?{'oai-authenticated-user-id':u.id,'oai-authenticated-user-email':u.email}:{})}
+function headers(u){const h=new Headers();h.identity=u?{userId:u.id,email:u.email,displayName:u.email}:null;return h;}
 async function post(u,action,data={},o=origin){const h=headers(u);if(o)h.set('Origin',o);h.set('Content-Type','application/json');return requestContext.run(h,async()=>{const r=await POST(new Request(origin+'/api/protect',{method:'POST',headers:h,body:JSON.stringify({action,...data})}));return {status:r.status,data:await r.json()}})}
 async function state(u){return requestContext.run(headers(u),async()=>{const r=await GET();assert.equal(r.status,200);return r.json()})}
 test('signed-in identity, provider gates, private lookup, exclusions and state case boundaries',async()=>{
@@ -27,3 +27,21 @@ const before=await exclusion(p.customer.id);await Promise.all([post(player,'exte
 }finally{globalThis.fetch=oldFetch}});
 test('cross-origin requests and rejected identity responses fail closed',async()=>{assert.equal((await post(player,'exclude',{},'https://attacker.test')).status,403);assert.equal((await post(player,'exclude',{},null)).status,403);const old=globalThis.fetch;globalThis.fetch=async()=>Response.json({verified:false});try{const r=await post({id:'new',email:'new@example.test'},'enrol',{kind:'nin',identifier:'11111111111',fullName:'Test Rejected',state:'Lagos',consent:true});assert.equal(r.status,400);assert.match(r.data.error,/could not be confirmed/)}finally{globalThis.fetch=old}});
 test('encrypted evidence-sized payload round trip',async()=>{const v={content:'x'.repeat(2*1024*1024)},cipher=await encrypt(v);assert.ok(!cipher.includes('x'.repeat(100)));assert.deepEqual(await decrypt(cipher),v)});
+
+test('evidence remains private to the reporter and their state regulator',async()=>{
+ const {POST:upload,GET:download}=await import('../app/api/evidence/route.ts');
+ const c=(await state(player)).complaints[0];
+ const form=new FormData();form.set('caseId',c.id);form.set('file',new File(['private evidence fixture'],'fixture.pdf',{type:'application/pdf'}));
+ const h=headers(player);h.set('Origin',origin);
+ const result=await requestContext.run(h,()=>upload(new Request(origin+'/api/evidence',{method:'POST',headers:h,body:form})));
+ assert.equal(result.status,200);
+ const evidence=(await state(player)).complaints[0].evidence[0];
+ const url=origin+'/api/evidence?case='+encodeURIComponent(c.id)+'&key='+encodeURIComponent(evidence.key);
+ async function read(u){return requestContext.run(headers(u),()=>download(new Request(url)));}
+ assert.equal((await read(staff)).status,403);
+ assert.equal((await read(oyo)).status,403);
+ assert.equal((await read(null)).status,403);
+ const ownerDownload=await read(player);assert.equal(ownerDownload.status,200);assert.equal(ownerDownload.headers.get('Cache-Control'),'no-store');
+ assert.equal(await ownerDownload.text(),'private evidence fixture');
+ assert.equal((await read(lagos)).status,200);
+});

@@ -1,10 +1,12 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 import {auth,db,get,rows,put,log,limit,providerReady,provider,enroll,fingerprint,exclusion,saveExclusion} from '../../../lib/live';
 import {normalizeIdentifier} from '../../../lib/identity-rules.mjs';
 import {allow} from '../../../lib/rules.mjs';
 import {states,statuses} from '../../../lib/constants';
 const json=(v:any,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'no-store'}});
 const periods=[1,7,30,90,180,365,1825];
-export async function GET(){try{const u=await auth(),config=await get('config'),out:any={user:u,now:Date.now(),durations:config?.durations||periods,identityReady:providerReady()};if(!u)return json(out);const shops=await rows('shop');out.shops=shops.filter(s=>u.role==='shop'?s.id===u.shopId:u.role==='owner'?s.owner===u.id:u.role==='regulator'?s.state===u.state:true);
+export async function GET(){try{const u=await auth(),config=u?await get('config'):null,out:any={user:u,now:Date.now(),durations:config?.durations||periods,identityReady:providerReady()};if(!u)return json(out);const shops=await rows('shop');out.shops=shops.filter(s=>u.role==='shop'?s.id===u.shopId:u.role==='owner'?s.owner===u.id:u.role==='regulator'?s.state===u.state:true);
 if(u.role==='player'){out.customer=(await rows('customer',u.id))[0]||null;out.exclusion=out.customer?await exclusion(out.customer.id):null;out.complaints=await rows('complaint',u.id);out.assessment=await get('assessment-'+u.id);out.support=await rows('support',u.id)}
 if(['admin','regulator'].includes(u.role)){out.complaints=await rows('complaint',undefined,u.role==='regulator'?u.state:undefined);out.inspections=await rows('inspection',undefined,u.role==='regulator'?u.state:undefined);const customers=await rows('customer',undefined,u.role==='regulator'?u.state:undefined);const exclusions=await Promise.all(customers.map(c=>exclusion(c.id)));out.stats={active:exclusions.filter(e=>e&&e.end>Date.now()).length}}
 if(['shop','owner','regulator','admin'].includes(u.role)){const checks=await rows('check',undefined,u.role==='regulator'?u.state:undefined);out.checks=checks.filter(c=>['admin','regulator'].includes(u.role)||out.shops.some((s:any)=>s.id===c.shopId)).map(({customerId,...c})=>c)}
@@ -31,4 +33,4 @@ if(a==='resource'){allow(u.role,['admin']);if(!b.title||!b.text)throw Error('Tit
 if(a==='config'){allow(u.role,['admin']);if(!Array.isArray(b.durations)||!b.durations.length||b.durations.some((d:any)=>!periods.includes(d)))throw Error('Select supported periods.');await put('config','config',u.id,'',{durations:b.durations});await log(u.id,'future periods updated','config');return json({ok:true})}
 if(a==='issue'){allow(u.role,['shop']);await put('issue',crypto.randomUUID(),u.id,u.state,{message:String(b.message).slice(0,1000),at:Date.now()});return json({ok:true})}
 return json({error:'Action unavailable.'},400)
-}catch(e:any){const message=String(e.message||'Request failed');return json({error:/SQL|D1|UNIQUE|constraint|decrypt/i.test(message)?'This request could not be completed. Please contact the administrator.':message},400)}}
+}catch(e:any){const message=String(e.message||'Request failed');return json({error:e.code||/SQL|UNIQUE|constraint|decrypt/i.test(message)?'This request could not be completed. Please contact the administrator.':message},400)}}
