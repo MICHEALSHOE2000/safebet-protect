@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1794173791499,
+      "tag": "0000_calm_meltdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794210863973,
+      "tag": "0001_breezy_major_mapleleaf",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+import {existsSync} from 'node:fs';
+export async function resolve(specifier,context,next){if(specifier==='cloudflare:workers')return {url:new URL('./mock-env.mjs',import.meta.url).href,shortCircuit:true};if(specifier==='next/headers'||specifier==='next/navigation')return {url:new URL('./mock-next.mjs',import.meta.url).href,shortCircuit:true};if(specifier.startsWith('.')&&!/\.[a-z]+$/.test(specifier)){const url=new URL(specifier+'.ts',context.parentURL);if(existsSync(url))return {url:url.href,shortCircuit:true}}return next(specifier,context)}

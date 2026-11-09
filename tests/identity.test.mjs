@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {normalizeIdentifier,assertVerified} from '../lib/identity-rules.mjs';
+test('Nigerian phone formats share one lookup key',()=>{for(const p of ['08012345678','+2348012345678','2348012345678','0801 234 5678'])assert.equal(normalizeIdentifier('phone',p),'+2348012345678')});
+test('NIN accepts eleven digits without a phone',()=>{assert.equal(normalizeIdentifier('nin','12345678901'),'12345678901');for(const v of ['','12','abcdefghijk','123456789012'])assert.throws(()=>normalizeIdentifier('nin',v))});
+test('verification requires identity match and correct method',()=>{assert.throws(()=>assertVerified({verified:true,subjectId:'x',method:'nin'},'nin'));assert.throws(()=>assertVerified({verified:true,identityMatched:true,subjectId:'x',method:'phone'},'nin'));assert.equal(assertVerified({verified:true,identityMatched:true,subjectId:'x',method:'nin'},'nin'),'x')});
