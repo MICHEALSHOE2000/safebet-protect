@@ -1,6 +1,6 @@
 export const states = ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara'];
-export const statuses = ['Submitted','Received','Under Review','Additional Information Requested','Referred','Resolved','Closed'];
-export const durationLabels: Record<number,string> = {1:'24 hours',7:'7 days',30:'30 days',90:'90 days',180:'180 days',365:'1 year',1825:'5 years'};
+export const statuses = ['Submitted','Received','Under Review','Additional Information Requested','Referred','Investigation opened','More information required','Resolved','Closed'];
+export const durationLabels: Record<number,string> = {0:'Indefinite',1:'24 hours',7:'7 days',30:'30 days',90:'90 days',180:'180 days',365:'1 year',1825:'5 years'};
 export const resourceData = [
  {title:'When an urge feels strong',category:'RIGHT NOW',text:'Pause before acting. Step away from the betting shop, put some distance between you and access to money, and contact someone you trust. Try a short walk or a grounding exercise: notice five things you can see and four you can feel.'},
  {title:'Make a recovery plan',category:'YOUR NEXT STEP',text:'Write down your reasons for taking a break, situations you want help with, and people you can call. Choose one practical action for today. Self-exclusion covers participating shops only; use it alongside support and other barriers you choose.'},
