@@ -2,6 +2,10 @@
 
 A player-protection web app for participating physical outlets, with player, attendant, owner, regulator and administrator workspaces. Independent project; reports are saved internally and are not automatically delivered to a government agency.
 
+## Fictional connected pilot
+
+See [pilot setup, architecture, acceptance scenarios and remaining work](docs/PILOT.md). Demo mode uses fictional player IDs and shared PostgreSQL records; accounts still authenticate through Supabase email codes. Public anonymous reporting and an unsaved educational check-in do not require an account.
+
 ## Deploy on Vercel
 
 This branch uses **standard Next.js**, Supabase Auth, PostgreSQL and private Supabase Storage. See [the complete deployment steps](docs/DEPLOYMENT.md).
