@@ -1,40 +1,561 @@
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-import {auth,db,get,rows,put,log,limit,providerReady,provider,enroll,fingerprint,exclusion,saveExclusion} from '../../../lib/live';
-import {normalizeIdentifier} from '../../../lib/identity-rules.mjs';
-import {allow} from '../../../lib/rules.mjs';
-import {states,statuses} from '../../../lib/constants';
-const json=(v:any,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'no-store'}});
-import {pilotEnabled,pilotEnrol,pilotCheck,inJurisdiction} from '../../../lib/pilot';
-const periods=[0,1,7,30,90,180,365,1825];
-export async function GET(){try{const u=await auth(),config=u?await get('config'):null,out:any={user:u,now:Date.now(),durations:config?.durations||periods,demoMode:pilotEnabled(),identityReady:pilotEnabled()||providerReady()};if(!u)return json(out);const shops=await rows('shop');out.shops=shops.filter(s=>u.role==='shop'?s.id===u.shopId:u.role==='owner'?s.owner===u.id:u.role==='regulator'?inJurisdiction(u,s):true);
-if(u.role==='player'){out.customer=(await rows('customer',u.id))[0]||null;out.exclusion=out.customer?await exclusion(out.customer.id):null;out.complaints=await rows('complaint',u.id);out.assessment=await get('assessment-'+u.id);out.support=await rows('support',u.id)}
-if(['admin','regulator'].includes(u.role)){out.complaints=await rows('complaint',undefined,u.role==='regulator'?u.state:undefined);out.inspections=await rows('inspection',undefined,u.role==='regulator'?u.state:undefined);const customers=await rows('customer',undefined,u.role==='regulator'?u.state:undefined);const exclusions=await Promise.all(customers.filter(c=>inJurisdiction(u,c)).map(c=>exclusion(c.id)));if(pilotEnabled()){out.complaints=out.complaints.filter((c:any)=>inJurisdiction(u,c));out.inspections=out.inspections.filter((c:any)=>inJurisdiction(u,c));}out.incidents=(await rows('issue')).filter(c=>inJurisdiction(u,c));out.officers=(await rows('access')).filter(a=>a.role==='regulator'&&inJurisdiction(u,a)).map(a=>({id:a.id,email:a.email}));out.stats={active:exclusions.filter(e=>e&&e.end>Date.now()).length}}
-if(['shop','owner','regulator','admin'].includes(u.role)){const checks=await rows('check',undefined,u.role==='regulator'?u.state:undefined);out.checks=checks.filter(c=>(['admin','regulator'].includes(u.role)&&inJurisdiction(u,c))||out.shops.some((s:any)=>s.id===c.shopId)).map(({customerId,...c})=>c)}
-if(u.role==='owner')out.attendants=(await rows('access')).filter(a=>a.role==='shop'&&out.shops.some((s:any)=>s.id===a.shopId));
-if(u.role==='admin'){out.users=await rows('member');out.assignments=await rows('access');out.audit=(await db().prepare('SELECT * FROM live_audit ORDER BY at DESC LIMIT 100').all()).results;out.jurisdictions=await rows('jurisdiction');out.resources=await rows('resource');out.support=await rows('support')}
-return json(out)}catch{return json({error:'Workspace unavailable. Please contact the administrator or try again.'},503)}}
-export async function POST(req:Request){try{if(req.headers.get('origin')!==new URL(req.url).origin)return json({error:'Invalid request origin.'},403);const u=await auth();if(!u)return json({error:'Please sign in.'},401);const raw=await req.text();if(raw.length>20000)return json({error:'Request too large.'},413);const b=JSON.parse(raw),a=b.action;await limit(u.id,'actions',60);
-if(['login','register','reset','token','logout'].includes(a))return json({error:'Demo access is disabled. Use your signed-in account and verified enrolment.'},410);
-if(a==='demoEnrol'){allow(u.role,['player','shop']);return json(await pilotEnrol(u,b.consent))}
-if(a==='phoneStart'){allow(u.role,['player','shop']);if(!b.consent)throw Error('Customer consent is required.');await limit(u.id,'otp',3);const r=await provider('phone.start',{identifier:normalizeIdentifier('phone',b.identifier),consent:true});if(!r.challengeId)throw Error('The identity provider did not start a challenge.');return json({challengeId:r.challengeId})}
-if(pilotEnabled()&&['enrol','phoneStart'].includes(a))throw Error('Use fictional demo enrolment. Do not enter real identity data.');
-if(a==='enrol'){allow(u.role,['player','shop']);if(!states.includes(b.state))throw Error('Choose a state.');if(u.role==='shop'&&(!u.shopId||!await get(u.shopId)))throw Error('An approved outlet assignment is required.');if(u.role==='player'&&(await rows('customer',u.id)).length)throw Error('Your account is already enrolled.');return json(await enroll(u,b))}
-if(a==='exclude'||a==='extend'){allow(u.role,['player','shop']);if(!b.consent)throw Error('Explicit voluntary consent is required.');const c=await get('config');if(!(c?.durations||periods).includes(Number(b.days)))throw Error('This period is unavailable.');let customer;if(u.role==='player')customer=(await rows('customer',u.id))[0];else{const check=await get(b.checkId||'');if(!check||check.owner!==u.id||check.shopId!==u.shopId||(pilotEnabled()&&!inJurisdiction(u,check))||check.at<Date.now()-300000||!check.customerId)throw Error('Complete a fresh identity check first.');customer=await get(check.customerId)}if(!customer?.verifiedAt)throw Error('Complete verified enrolment first.');const dates=await saveExclusion(customer.id,Number(b.days),a==='extend');await log(u.id,a,customer.id);return json({ok:true,...dates})}
-if(a==='verify'){allow(u.role,['shop']);if(pilotEnabled()){await limit(u.id,'lookup',8);return json(await pilotCheck(u,b));}if(!u.shopId||!await get(u.shopId))throw Error('A registered shop assignment is required.');if(!b.identityConfirmed||!b.consent)throw Error('Confirm customer consent and identity using the approved procedure.');await limit(u.id,'lookup',8);const value=normalizeIdentifier(b.kind,b.identifier),hash=await fingerprint(b.kind,value),match:any=await db().prepare('SELECT customer_id FROM identity_index WHERE fingerprint=? AND kind=?').bind(hash,b.kind).first();if(!match){await log(u.id,'unmatched lookup',u.shopId);return json({matched:false,message:'No verified record found. Do not treat this as clearance.'})}const customer=await get(match.customer_id);if(!customer?.verifiedAt)throw Error('Identity has not been verified.');const ex=await exclusion(customer.id),at=Date.now(),active=!!ex&&ex.end>at,id=crypto.randomUUID();await put('check',id,u.id,u.state,{customerId:customer.id,shopId:u.shopId,at,active,refused:false,consentAt:at});await log(u.id,'protection checked',id);return json({id,matched:true,active,at,expires:at+300000})}
-if(a==='refuse'){allow(u.role,['shop']);const c=await get(b.id);if(!c||c.owner!==u.id||c.shopId!==u.shopId||(pilotEnabled()&&!inJurisdiction(u,c))||(!c.active&&!c.result?.startsWith('UNDERAGE'))||c.at<Date.now()-(pilotEnabled()?60000:300000))throw Error('A fresh active-exclusion check is required.');await put('check',c.id,u.id,u.state,{...c,refused:true});await log(u.id,'service refused',c.id);return json({ok:true})}
-if(a==='assessment'){allow(u.role,['player']);if(!Array.isArray(b.answers)||b.answers.length!==9||b.answers.some((v:any)=>![0,1,2,3].includes(v)))throw Error('Answer all nine questions.');await put('assessment','assessment-'+u.id,u.id,u.state,{answers:b.answers,at:Date.now()});return json({ok:true})}
-if(a==='report'&&pilotEnabled())throw Error('Use the public pilot report form to select an assigned pilot shop.');
-if(a==='report'){allow(u.role,['player']);if(!states.includes(b.state)||!b.shopName?.trim()||!b.location?.trim()||!b.description?.trim()||!b.incidentDate)throw Error('Complete the required report details.');const id='SB-'+crypto.randomUUID();await put('complaint',id,u.id,b.state,{shopName:String(b.shopName).slice(0,100),location:String(b.location).slice(0,150),category:b.category,description:String(b.description).slice(0,3000),incidentDate:b.incidentDate,confidential:!!b.confidential,status:'Submitted',created:Date.now(),evidence:[],updates:[{status:'Submitted',at:Date.now(),note:'Saved to SafeBet Protect. No external authority has been contacted.'}]});await log(u.id,'report submitted',id);return json({ok:true,id})}
-if(a==='updateCase'){allow(u.role,['regulator']);const c=await get(b.id);if(!c||c.kind!=='complaint'||!inJurisdiction(u,c))return json({error:'Case outside your jurisdiction.'},403);if(b.assignedTo){const officer=await get(b.assignedTo);if(!officer||officer.kind!=='access'||officer.role!=='regulator'||!inJurisdiction(u,officer))throw Error('Choose an officer in your jurisdiction.');}if(!statuses.includes(b.status))throw Error('Choose a valid status.');await put('complaint',c.id,c.owner,c.state,{...c,status:b.status,assignedTo:b.assignedTo||c.assignedTo||null,updates:[...c.updates,{status:b.status,note:String(b.note||'Case updated.').slice(0,1000),at:Date.now()}]});await log(u.id,'case updated',c.id);return json({ok:true})}
-if(a==='support'||a==='concern'){allow(u.role,['player']);if(!b.message?.trim())throw Error('Enter a message.');await put('support',crypto.randomUUID(),u.id,u.state,{type:a,message:String(b.message).slice(0,2000),at:Date.now(),status:'Awaiting platform review; not an emergency service'});return json({ok:true})}
-if(a==='assign'){allow(u.role,['admin']);if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(b.email))||!['player','shop','owner','regulator'].includes(b.role)||!states.includes(b.state))throw Error('Enter email, supported role and state.');if(b.role==='shop'){const shop=await get(b.shopId);if(!shop)throw Error('Select a registered outlet.');b.state=shop.state}if(pilotEnabled()){const j=await get(b.jurisdictionId||'');if(!j?.active)throw Error('Select a configured pilot jurisdiction.');b.state=j.state;if(b.role==='shop'&&(await get(b.shopId))?.jurisdictionId!==j.id)throw Error('Shop and jurisdiction must match.');}const email=String(b.email).trim().toLowerCase(),id='access-'+await fingerprint('email',email);await put('access',id,u.id,b.state,{email,role:b.role,jurisdictionId:b.jurisdictionId||null,shopId:b.role==='shop'?b.shopId:null});await log(u.id,'access assigned',id);return json({ok:true})}
-if(a==='addShop'){allow(u.role,['owner','admin']);if(pilotEnabled()&&u.role==='admin')throw Error('Use the reviewed pilot seed to create shops.');if(!b.name?.trim()||!b.location?.trim()||!states.includes(b.state))throw Error('Enter shop name, location and state.');const id='outlet-'+crypto.randomUUID();await put('shop',id,u.id,b.state,{active:true,jurisdictionId:u.jurisdictionId||null,name:String(b.name).slice(0,100),location:String(b.location).slice(0,200),licence:String(b.licence||'Not recorded').slice(0,80)});await log(u.id,'outlet registered',id);return json({ok:true})}
-if(a==='addAttendant'){allow(u.role,['owner']);const shop=await get(b.shopId||'');if(!shop||shop.kind!=='shop'||shop.owner!==u.id||!inJurisdiction(u,shop))throw Error('Choose one of your assigned shops.');const email=String(b.email||'').trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Enter a staff email.');const id='access-'+await fingerprint('email',email),old=await get(id);if(old&&(old.role!=='shop'||old.owner!==u.id))throw Error('An administrator must change existing access.');await put('access',id,u.id,shop.state,{email,role:'shop',shopId:shop.id,jurisdictionId:shop.jurisdictionId});await log(u.id,'attendant assigned',id);return json({ok:true})}
-if(a==='training'){allow(u.role,['shop']);await put('member',u.id,u.id,u.state,{...u,trained:true});await log(u.id,'training acknowledged',u.shopId);return json({ok:true})}
-if(a==='inspect'){allow(u.role,['regulator']);const shop=await get(b.shopId);if(!shop||!inJurisdiction(u,shop))throw Error('Select an outlet in your jurisdiction.');await put('inspection',crypto.randomUUID(),u.id,u.state,{shopId:shop.id,jurisdictionId:shop.jurisdictionId,note:String(b.note).slice(0,1000),at:Date.now()});return json({ok:true})}
-if(a==='resource'){allow(u.role,['admin']);if(!b.title||!b.text)throw Error('Title and content required.');await put('resource',crypto.randomUUID(),u.id,'',{title:String(b.title).slice(0,150),text:String(b.text).slice(0,5000),category:'SUPPORT'});return json({ok:true})}
-if(a==='config'){allow(u.role,['admin']);if(!Array.isArray(b.durations)||!b.durations.length||b.durations.some((d:any)=>!periods.includes(d)))throw Error('Select supported periods.');await put('config','config',u.id,'',{durations:b.durations});await log(u.id,'future periods updated','config');return json({ok:true})}
-if(a==='issue'){allow(u.role,['shop']);if(!b.message?.trim())throw Error('Describe the incident.');await put('issue',crypto.randomUUID(),u.id,u.state,{shopId:u.shopId,jurisdictionId:u.jurisdictionId,message:String(b.message).slice(0,1000),at:Date.now()});return json({ok:true})}
-return json({error:'Action unavailable.'},400)
-}catch(e:any){const message=String(e.message||'Request failed');return json({error:e.code||/SQL|UNIQUE|constraint|decrypt/i.test(message)?'This request could not be completed. Please contact the administrator.':message},400)}}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+import {
+  auth,
+  db,
+  get,
+  rows,
+  put,
+  log,
+  limit,
+  providerReady,
+  provider,
+  enroll,
+  fingerprint,
+  exclusion,
+  saveExclusion,
+} from "../../../lib/live";
+import { normalizeIdentifier } from "../../../lib/identity-rules.mjs";
+import { allow } from "../../../lib/rules.mjs";
+import { states, statuses } from "../../../lib/constants";
+const json = (v: any, status = 200) =>
+  Response.json(v, { status, headers: { "Cache-Control": "no-store" } });
+import {
+  pilotEnabled,
+  pilotEnrol,
+  pilotCheck,
+  inJurisdiction,
+} from "../../../lib/pilot";
+import { workspaceHome } from "../../../lib/workspace-routes";
+import { workspaceFailure } from "../../../lib/workspace-errors";
+import { assertDeploymentMode } from "../../../lib/deployment-mode";
+const periods = [0, 90, 180, 365, 1825];
+export async function GET() {
+  let operation = "authenticate_and_initialize_profile";
+  try {
+    const u = await auth();
+    if (u) {
+      operation = "validate_environment_boundary";
+      await assertDeploymentMode();
+    }
+    operation = "load_workspace_records";
+    const config = u ? await get("config") : null,
+      out: any = {
+        user: u,
+        now: Date.now(),
+        durations: config?.durations || periods,
+        demoMode: pilotEnabled(),
+        identityReady: pilotEnabled() || providerReady(),
+      };
+    if (!u) return json(out);
+    out.home = workspaceHome(u.role);
+    const shops = await rows("shop");
+    out.shops = shops.filter((s) =>
+      u.role === "shop"
+        ? s.id === u.shopId
+        : u.role === "owner"
+          ? s.owner === u.id
+          : u.role === "regulator"
+            ? inJurisdiction(u, s)
+            : u.role === "admin",
+    );
+    if (u.role === "player") {
+      out.customer = (await rows("customer", u.id))[0] || null;
+      out.exclusion = out.customer ? await exclusion(out.customer.id) : null;
+      out.complaints = await rows("complaint", u.id);
+      out.assessment = await get("assessment-" + u.id);
+      out.support = await rows("support", u.id);
+      out.history = out.customer
+        ? (await rows("check"))
+            .filter((c) => c.customerId === out.customer.id)
+            .map((c) => ({
+              id: c.id,
+              at: c.at,
+              active: c.active,
+              refused: c.refused,
+            }))
+        : [];
+    }
+    if (["admin", "regulator"].includes(u.role)) {
+      out.complaints = await rows(
+        "complaint",
+        undefined,
+        u.role === "regulator" ? u.state : undefined,
+      );
+      out.inspections = await rows(
+        "inspection",
+        undefined,
+        u.role === "regulator" ? u.state : undefined,
+      );
+      const customers = await rows(
+        "customer",
+        undefined,
+        u.role === "regulator" ? u.state : undefined,
+      );
+      const exclusions = await Promise.all(
+        customers
+          .filter((c) => inJurisdiction(u, c))
+          .map((c) => exclusion(c.id)),
+      );
+      if (pilotEnabled()) {
+        out.complaints = out.complaints.filter((c: any) =>
+          inJurisdiction(u, c),
+        );
+        out.inspections = out.inspections.filter((c: any) =>
+          inJurisdiction(u, c),
+        );
+      }
+      out.incidents = (await rows("issue")).filter((c) => inJurisdiction(u, c));
+      out.officers = (await rows("access"))
+        .filter((a) => a.role === "regulator" && inJurisdiction(u, a))
+        .map((a) => ({ id: a.id, email: a.email }));
+      out.stats = {
+        active: exclusions.filter((e) => e && e.end > Date.now()).length,
+      };
+    }
+    if (["shop", "owner", "regulator", "admin"].includes(u.role)) {
+      const checks = await rows(
+        "check",
+        undefined,
+        u.role === "regulator" ? u.state : undefined,
+      );
+      out.checks = checks
+        .filter(
+          (c) =>
+            (["admin", "regulator"].includes(u.role) && inJurisdiction(u, c)) ||
+            out.shops.some((s: any) => s.id === c.shopId),
+        )
+        .map(({ customerId, ...c }) => c);
+    }
+    if (u.role === "regulator") {
+      const targets = new Set(
+        [
+          ...out.checks,
+          ...out.complaints,
+          ...out.inspections,
+          ...out.shops,
+        ].map((c) => c.id),
+      );
+      out.audit = (
+        await db().prepare("SELECT * FROM live_audit ORDER BY at DESC").all()
+      ).results
+        .filter((a: any) => targets.has(a.target))
+        .slice(0, 100)
+        .map(({ actor, digest, ...a }: any) => a);
+    }
+    if (u.role === "owner")
+      out.attendants = (await rows("access")).filter(
+        (a) =>
+          a.role === "shop" && out.shops.some((s: any) => s.id === a.shopId),
+      );
+    if (u.role === "admin") {
+      out.users = await rows("member");
+      out.assignments = await rows("access");
+      out.audit = (
+        await db()
+          .prepare("SELECT * FROM live_audit ORDER BY at DESC LIMIT 100")
+          .all()
+      ).results;
+      out.jurisdictions = await rows("jurisdiction");
+      out.resources = await rows("resource");
+      out.support = await rows("support");
+    }
+    return json(out);
+  } catch (error) {
+    return workspaceFailure(error, operation);
+  }
+}
+export async function POST(req: Request) {
+  try {
+    if (req.headers.get("origin") !== new URL(req.url).origin)
+      return json({ error: "Invalid request origin." }, 403);
+    const u = await auth();
+    if (u) await assertDeploymentMode();
+    if (!u) return json({ error: "Please sign in." }, 401);
+    const raw = await req.text();
+    if (raw.length > 20000) return json({ error: "Request too large." }, 413);
+    const b = JSON.parse(raw),
+      a = b.action;
+    await limit(u.id, "actions", 60);
+    if (["login", "register", "reset", "token", "logout"].includes(a))
+      return json(
+        {
+          error:
+            "Demo access is disabled. Use your signed-in account and verified enrolment.",
+        },
+        410,
+      );
+    if (a === "demoEnrol") {
+      allow(u.role, ["player", "shop"]);
+      return json(await pilotEnrol(u, b.consent));
+    }
+    if (pilotEnabled() && ["enrol", "phoneStart"].includes(a))
+      throw Error(
+        "Use fictional demo enrolment. Do not enter real identity data.",
+      );
+    if (a === "phoneStart") {
+      allow(u.role, ["player", "shop"]);
+      if (!b.consent) throw Error("Customer consent is required.");
+      await limit(u.id, "otp", 3);
+      const r = await provider("phone.start", {
+        identifier: normalizeIdentifier("phone", b.identifier),
+        consent: true,
+      });
+      if (!r.challengeId)
+        throw Error("The identity provider did not start a challenge.");
+      return json({ challengeId: r.challengeId });
+    }
+
+    if (a === "enrol") {
+      allow(u.role, ["player", "shop"]);
+      if (!states.includes(b.state)) throw Error("Choose a state.");
+      if (u.role === "shop" && (!u.shopId || !(await get(u.shopId))))
+        throw Error("An approved outlet assignment is required.");
+      if (u.role === "player" && (await rows("customer", u.id)).length)
+        throw Error("Your account is already enrolled.");
+      return json(await enroll(u, b));
+    }
+    if (a === "exclude" || a === "extend") {
+      allow(u.role, ["player", "shop"]);
+      if (!b.consent) throw Error("Explicit voluntary consent is required.");
+      const c = await get("config");
+      if (!(c?.durations || periods).includes(Number(b.days)))
+        throw Error("This period is unavailable.");
+      let customer;
+      if (u.role === "player") customer = (await rows("customer", u.id))[0];
+      else {
+        const check = await get(b.checkId || "");
+        if (
+          !check ||
+          check.owner !== u.id ||
+          check.shopId !== u.shopId ||
+          (pilotEnabled() && !inJurisdiction(u, check)) ||
+          check.at < Date.now() - 300000 ||
+          !check.customerId
+        )
+          throw Error("Complete a fresh identity check first.");
+        customer = await get(check.customerId);
+      }
+      if (!customer?.verifiedAt)
+        throw Error("Complete verified enrolment first.");
+      const dates = await saveExclusion(
+        customer.id,
+        Number(b.days),
+        a === "extend",
+      );
+      await log(u.id, a, customer.id);
+      return json({ ok: true, ...dates });
+    }
+    if (a === "verify") {
+      allow(u.role, ["shop"]);
+      if (pilotEnabled()) {
+        await limit(u.id, "lookup", 8);
+        return json(await pilotCheck(u, b));
+      }
+      if (!u.shopId || !(await get(u.shopId)))
+        throw Error("A registered shop assignment is required.");
+      if (!b.identityConfirmed || !b.consent)
+        throw Error(
+          "Confirm customer consent and identity using the approved procedure.",
+        );
+      await limit(u.id, "lookup", 8);
+      const value = normalizeIdentifier(b.kind, b.identifier),
+        hash = await fingerprint(b.kind, value),
+        match: any = await db()
+          .prepare(
+            "SELECT customer_id FROM identity_index WHERE fingerprint=? AND kind=?",
+          )
+          .bind(hash, b.kind)
+          .first();
+      if (!match) {
+        await log(u.id, "unmatched lookup", u.shopId);
+        return json({
+          matched: false,
+          message: "No verified record found. Do not treat this as clearance.",
+        });
+      }
+      const customer = await get(match.customer_id);
+      if (customer?.simulated)
+        throw Error("Fictional identities cannot be used in production.");
+      if (!customer?.verifiedAt || customer.adultVerified !== true)
+        return json({
+          matched: false,
+          message:
+            "Identity and adult status could not be verified. Do not proceed.",
+        });
+      const ex = await exclusion(customer.id),
+        at = Date.now(),
+        active = !!ex && ex.end > at,
+        id = crypto.randomUUID();
+      await put("check", id, u.id, u.state, {
+        customerId: customer.id,
+        shopId: u.shopId,
+        at,
+        active,
+        refused: false,
+        consentAt: at,
+      });
+      await log(u.id, "protection checked", id);
+      return json({ id, matched: true, active, at, expires: at + 300000 });
+    }
+    if (a === "refuse") {
+      allow(u.role, ["shop"]);
+      const c = await get(b.id);
+      if (
+        !c ||
+        c.owner !== u.id ||
+        c.shopId !== u.shopId ||
+        (pilotEnabled() && !inJurisdiction(u, c)) ||
+        (!c.active && !c.result?.startsWith("UNDERAGE")) ||
+        c.at < Date.now() - (pilotEnabled() ? 60000 : 300000)
+      )
+        throw Error("A fresh active-exclusion check is required.");
+      await put("check", c.id, u.id, u.state, { ...c, refused: true });
+      await log(u.id, "service refused", c.id);
+      return json({ ok: true });
+    }
+    if (a === "assessment") {
+      allow(u.role, ["player"]);
+      if (
+        !Array.isArray(b.answers) ||
+        b.answers.length !== 9 ||
+        b.answers.some((v: any) => ![0, 1, 2, 3].includes(v))
+      )
+        throw Error("Answer all nine questions.");
+      await put("assessment", "assessment-" + u.id, u.id, u.state, {
+        answers: b.answers,
+        at: Date.now(),
+      });
+      return json({ ok: true });
+    }
+    if (a === "report" && pilotEnabled())
+      throw Error(
+        "Use the public pilot report form to select an assigned pilot shop.",
+      );
+    if (a === "report") {
+      allow(u.role, ["player"]);
+      if (
+        !states.includes(b.state) ||
+        !b.shopName?.trim() ||
+        !b.location?.trim() ||
+        !b.description?.trim() ||
+        !b.incidentDate
+      )
+        throw Error("Complete the required report details.");
+      const id = "SB-" + crypto.randomUUID();
+      await put("complaint", id, u.id, b.state, {
+        shopName: String(b.shopName).slice(0, 100),
+        location: String(b.location).slice(0, 150),
+        category: b.category,
+        description: String(b.description).slice(0, 3000),
+        incidentDate: b.incidentDate,
+        confidential: !!b.confidential,
+        status: "Submitted",
+        created: Date.now(),
+        evidence: [],
+        updates: [
+          {
+            status: "Submitted",
+            at: Date.now(),
+            note: "Saved to SafeBet Protect. No external authority has been contacted.",
+          },
+        ],
+      });
+      await log(u.id, "report submitted", id);
+      return json({ ok: true, id });
+    }
+    if (a === "updateCase") {
+      allow(u.role, ["regulator"]);
+      const c = await get(b.id);
+      if (!c || c.kind !== "complaint" || !inJurisdiction(u, c))
+        return json({ error: "Case outside your jurisdiction." }, 403);
+      if (b.assignedTo) {
+        const officer = await get(b.assignedTo);
+        if (
+          !officer ||
+          officer.kind !== "access" ||
+          officer.role !== "regulator" ||
+          !inJurisdiction(u, officer)
+        )
+          throw Error("Choose an officer in your jurisdiction.");
+      }
+      if (!statuses.includes(b.status)) throw Error("Choose a valid status.");
+      await put("complaint", c.id, c.owner, c.state, {
+        ...c,
+        status: b.status,
+        assignedTo: b.assignedTo || c.assignedTo || null,
+        updates: [
+          ...c.updates,
+          {
+            status: b.status,
+            note: String(b.note || "Case updated.").slice(0, 1000),
+            at: Date.now(),
+          },
+        ],
+      });
+      await log(u.id, "case updated", c.id);
+      return json({ ok: true });
+    }
+    if (a === "support" || a === "concern") {
+      allow(u.role, ["player"]);
+      if (!b.message?.trim()) throw Error("Enter a message.");
+      await put("support", crypto.randomUUID(), u.id, u.state, {
+        type: a,
+        message: String(b.message).slice(0, 2000),
+        at: Date.now(),
+        status: "Awaiting platform review; not an emergency service",
+      });
+      return json({ ok: true });
+    }
+    if (a === "assign") {
+      allow(u.role, ["admin"]);
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(b.email)) ||
+        !["player", "shop", "owner", "regulator"].includes(b.role) ||
+        !states.includes(b.state)
+      )
+        throw Error("Enter email, supported role and state.");
+      if (b.role === "shop") {
+        const shop = await get(b.shopId);
+        if (!shop) throw Error("Select a registered outlet.");
+        b.state = shop.state;
+      }
+      if (pilotEnabled()) {
+        const j = await get(b.jurisdictionId || "");
+        if (!j?.active) throw Error("Select a configured pilot jurisdiction.");
+        b.state = j.state;
+        if (b.role === "shop" && (await get(b.shopId))?.jurisdictionId !== j.id)
+          throw Error("Shop and jurisdiction must match.");
+      }
+      const email = String(b.email).trim().toLowerCase(),
+        id = "access-" + (await fingerprint("email", email));
+      await put("access", id, u.id, b.state, {
+        email,
+        role: b.role,
+        jurisdictionId: b.jurisdictionId || null,
+        shopId: b.role === "shop" ? b.shopId : null,
+      });
+      await log(u.id, "access assigned", id);
+      return json({ ok: true });
+    }
+    if (a === "addShop") {
+      allow(u.role, ["owner", "admin"]);
+      if (pilotEnabled() && u.role === "admin")
+        throw Error("Use the reviewed pilot seed to create shops.");
+      if (!b.name?.trim() || !b.location?.trim() || !states.includes(b.state))
+        throw Error("Enter shop name, location and state.");
+      const id = "outlet-" + crypto.randomUUID();
+      await put("shop", id, u.id, b.state, {
+        active: true,
+        jurisdictionId: u.jurisdictionId || null,
+        name: String(b.name).slice(0, 100),
+        location: String(b.location).slice(0, 200),
+        licence: String(b.licence || "Not recorded").slice(0, 80),
+      });
+      await log(u.id, "outlet registered", id);
+      return json({ ok: true });
+    }
+    if (a === "addAttendant") {
+      allow(u.role, ["owner"]);
+      const shop = await get(b.shopId || "");
+      if (
+        !shop ||
+        shop.kind !== "shop" ||
+        shop.owner !== u.id ||
+        !inJurisdiction(u, shop)
+      )
+        throw Error("Choose one of your assigned shops.");
+      const email = String(b.email || "")
+        .trim()
+        .toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        throw Error("Enter a staff email.");
+      const id = "access-" + (await fingerprint("email", email)),
+        old = await get(id);
+      if (old && (old.role !== "shop" || old.owner !== u.id))
+        throw Error("An administrator must change existing access.");
+      await put("access", id, u.id, shop.state, {
+        email,
+        role: "shop",
+        shopId: shop.id,
+        jurisdictionId: shop.jurisdictionId,
+      });
+      await log(u.id, "attendant assigned", id);
+      return json({ ok: true });
+    }
+    if (a === "training") {
+      allow(u.role, ["shop"]);
+      await put("member", u.id, u.id, u.state, { ...u, trained: true });
+      await log(u.id, "training acknowledged", u.shopId);
+      return json({ ok: true });
+    }
+    if (a === "inspect") {
+      allow(u.role, ["regulator"]);
+      const shop = await get(b.shopId);
+      if (!shop || !inJurisdiction(u, shop))
+        throw Error("Select an outlet in your jurisdiction.");
+      await put("inspection", crypto.randomUUID(), u.id, u.state, {
+        shopId: shop.id,
+        jurisdictionId: shop.jurisdictionId,
+        note: String(b.note).slice(0, 1000),
+        at: Date.now(),
+      });
+      return json({ ok: true });
+    }
+    if (a === "resource") {
+      allow(u.role, ["admin"]);
+      if (!b.title || !b.text) throw Error("Title and content required.");
+      await put("resource", crypto.randomUUID(), u.id, "", {
+        title: String(b.title).slice(0, 150),
+        text: String(b.text).slice(0, 5000),
+        category: "SUPPORT",
+      });
+      return json({ ok: true });
+    }
+    if (a === "config") {
+      allow(u.role, ["admin"]);
+      if (
+        !Array.isArray(b.durations) ||
+        !b.durations.length ||
+        b.durations.some(
+          (d: any) => ![0, 1, 7, 30, 90, 180, 365, 1825].includes(d),
+        )
+      )
+        throw Error("Select supported periods.");
+      await put("config", "config", u.id, "", { durations: b.durations });
+      await log(u.id, "future periods updated", "config");
+      return json({ ok: true });
+    }
+    if (a === "issue") {
+      allow(u.role, ["shop"]);
+      if (!b.message?.trim()) throw Error("Describe the incident.");
+      await put("issue", crypto.randomUUID(), u.id, u.state, {
+        shopId: u.shopId,
+        jurisdictionId: u.jurisdictionId,
+        message: String(b.message).slice(0, 1000),
+        at: Date.now(),
+      });
+      return json({ ok: true });
+    }
+    return json({ error: "Action unavailable." }, 400);
+  } catch (e: any) {
+    const message = String(e.message || "Request failed");
+    if (
+      e.code ||
+      /not configured|connection|decrypt|certificate|Secure storage|Secure lookup/i.test(
+        message,
+      ) ||
+      e.name === "OperationError"
+    )
+      return workspaceFailure(e, "workspace_mutation");
+    return json(
+      {
+        error:
+          e.code || /SQL|UNIQUE|constraint|decrypt/i.test(message)
+            ? "This request could not be completed. Please contact the administrator."
+            : message,
+      },
+      400,
+    );
+  }
+}

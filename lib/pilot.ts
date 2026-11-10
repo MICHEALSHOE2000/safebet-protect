@@ -19,7 +19,7 @@ export function eligibility(customer:any,active:boolean,minimumAge:number,now=ne
  if(!Number.isFinite(birth.getTime())||birth>now)return 'VERIFICATION REQUIRED';
  const age=now.getUTCFullYear()-birth.getUTCFullYear()-Number(now.getUTCMonth()<birth.getUTCMonth()||(now.getUTCMonth()===birth.getUTCMonth()&&now.getUTCDate()<birth.getUTCDate()));
  if(age<minimumAge)return 'UNDERAGE — DO NOT SERVE';
- return active?'EXCLUDED — DO NOT SERVE':'ELIGIBLE — VERIFIED ADULT';
+ return active?'EXCLUDED — DO NOT SERVE':'NO ACTIVE EXCLUSION FOUND';
 }
 export async function pilotCheck(user:any,body:any) {
  if(!pilotEnabled()||user.role!=='shop')throw Error('Demo checks are unavailable for this account.');

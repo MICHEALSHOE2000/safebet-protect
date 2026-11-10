@@ -1,0 +1,13 @@
+# Repair audit
+
+Baseline: 5c588dc. Branch: feat/protection-redesign.
+
+Confirmed defects: public pages mounted the internal sidebar and depended on workspace bootstrap; email verification redirected every role to the public root; GET /api/protect discarded every exception; demo mode relied on one environment flag; a successful demo lookup claimed eligibility; anonymous reporting omitted incident time; regulator audit records were not exposed by jurisdiction. Private assessments and encrypted records, server role assignments, exclusion optimistic concurrency, private evidence and shared PostgreSQL are retained.
+
+Hosted inspection on 10 November 2026 found a concrete authentication-bootstrap blocker: the unfiltered Vercel project environment-variable list contains the Supabase URL/publishable key, DATABASE_URL, service-role key, ADMIN_EMAIL and DATA_ENCRYPTION_KEY, but no IDENTITY_LOOKUP_PEPPER. These entries cover Production and Preview. lib/runtime.ts reads the pepper directly from process.env; after successful Supabase authentication, lib/live.ts auth() immediately calls fingerprint(), which throws “Secure lookup is not configured.” when it is missing. The original generic catch hides this failure. This is an observed missing prerequisite and deterministic failure path, not proof that no additional failures remain. No secret values were revealed or changed.
+
+A read-only Supabase SQL metadata query in the existing project returned identity_index, live_audit, live_exclusions, live_records and rate_limits. The original schema exists; deployment_guard from migration 002 does not. The preview's public reporting endpoint requires this new table, so its hosted reporting journey is blocked pending migration. The Vercel runtime-log view inspected earlier did not reveal the original swallowed exception.
+
+Restore the original stable lookup pepper securely if one has ever been used with existing records; do not rotate it casually. An entirely new isolated demo registry can use its own newly generated secret. Database TLS/connection credentials, decryption of existing records, hosted OTP delivery and role sessions still need verification. No production integration has been certified.
+
+Implementation: separate public pages, accessible design system, explicit role navigation and routing, structured errors and retry, PostgreSQL identity environment boundary, protected configuration checklist, accurate verification decisions, scoped audit and player history. Deployment must apply 002 after 001 and configure separate Supabase projects before testing email delivery and real sessions.

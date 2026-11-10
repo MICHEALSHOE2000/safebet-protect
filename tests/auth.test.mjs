@@ -10,7 +10,7 @@ test('forged host identity headers do not authenticate a Vercel request', async(
 test('only a confirmed server-validated email authenticates',async()=>{
  const user={id:'real-id',email:'member@example.test',user_metadata:{role:'admin'}};
  assert.equal(await verifiedSession.run({user},()=>getAppUser()),null);
- assert.equal(await verifiedSession.run({user:{...user,email_confirmed_at:'2026-01-01'},error:new Error('revoked')},()=>getAppUser()),null);
+ await assert.rejects(verifiedSession.run({user:{...user,email_confirmed_at:'2026-01-01'},error:new Error('revoked')},()=>getAppUser()),{code:'AUTHENTICATION_REQUIRED'});
  const valid=await verifiedSession.run({user:{...user,email_confirmed_at:'2026-01-01'}},()=>getAppUser());
  assert.deepEqual(valid,{userId:'real-id',email:user.email,displayName:user.email});
 });
