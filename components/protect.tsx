@@ -1238,7 +1238,8 @@ export default function Protect() {
         {btn("Return to overview", "/", true)}
       </div>
     );
-  const publicPage = !loginRequired && !path.startsWith("/workspace");
+  const publicPage =
+    (!loginRequired && !path.startsWith("/workspace")) || (!loading && !u);
   if (publicPage)
     return (
       <PublicShell>

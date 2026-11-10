@@ -19,3 +19,18 @@ test('bootstrap database failure returns safe diagnostic rather than successful 
  const h=new Headers();h.identity={userId:'bootstrap-failure',email:'fixture@example.test',displayName:'Fixture'};
  try{const r=await requestContext.run(h,()=>GET());assert.equal(r.status,503);const body=await r.json();assert.equal(body.code,'DATABASE_SCHEMA_MISSING');assert.equal(body.user,undefined);assert.ok(body.requestId);assert.ok(!body.error.includes('SQL'));}finally{env.DB=original}
 });
+
+test('public reporting registry failures return a safe reference', async () => {
+ const {GET: reportingRegistry} = await import('../app/api/complaints/route.ts');
+ const original = env.DB;
+ env.DB = {prepare(){throw Object.assign(Error('private SQL details'), {code:'42P01'})}};
+ try {
+  const response = await reportingRegistry();
+  const body = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(body.code, 'DATABASE_SCHEMA_MISSING');
+  assert.ok(body.requestId);
+  assert.equal(body.shops, undefined);
+  assert.ok(!body.error.includes('SQL'));
+ } finally {env.DB = original}
+});

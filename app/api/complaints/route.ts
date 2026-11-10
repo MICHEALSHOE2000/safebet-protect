@@ -11,6 +11,7 @@ import {
 } from "../../../lib/live";
 import { assertDeploymentMode } from "../../../lib/deployment-mode";
 import { pilotEnabled } from "../../../lib/pilot";
+import { workspaceFailure } from "../../../lib/workspace-errors";
 const json = (v: any, status = 200) =>
   Response.json(v, { status, headers: { "Cache-Control": "no-store" } });
 export async function GET() {
@@ -30,11 +31,8 @@ export async function GET() {
           jurisdictionId: s.jurisdictionId,
         })),
     });
-  } catch {
-    return json(
-      { error: "Reporting service unavailable. Please retry later." },
-      503,
-    );
+  } catch (error) {
+    return workspaceFailure(error, "load_public_reporting_registry");
   }
 }
 export async function POST(req: Request) {
@@ -134,10 +132,7 @@ export async function POST(req: Request) {
     );
     await log("anonymous", "complaint submitted", id);
     return json({ reference: id, secret, accountLinked: !!reporter }, 201);
-  } catch {
-    return json(
-      { error: "Unable to complete this request. Please retry later." },
-      503,
-    );
+  } catch (error) {
+    return workspaceFailure(error, "submit_or_track_public_report");
   }
 }

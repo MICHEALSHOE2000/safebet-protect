@@ -176,7 +176,10 @@ export function PublicComplaint() {
         setShops(d.shops || []);
         setJurisdictions(d.jurisdictions || []);
         setDemoMode(!!d.demoMode);
-        if (d.error) setError(d.error);
+        if (d.error)
+          setError(
+            `${d.error}${d.requestId ? " Reference: " + d.requestId : ""}`,
+          );
       })
       .catch(() => setError("Reporting service unavailable."));
   }, []);
@@ -190,7 +193,10 @@ export function PublicComplaint() {
         body: JSON.stringify(data),
       });
       const d = await r.json();
-      if (!r.ok) throw Error(d.error);
+      if (!r.ok)
+        throw Error(
+          `${d.error}${d.requestId ? " Reference: " + d.requestId : ""}`,
+        );
       return d;
     } catch (e: any) {
       setError(e.message);
